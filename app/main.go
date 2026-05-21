@@ -1,14 +1,19 @@
 package main
 
 import (
+	"encoding/binary"
 	"fmt"
 	"net"
 	"os"
 )
 
-// Ensures gofmt doesn't remove the "net" and "os" imports in stage 1 (feel free to remove this!)
-var _ = net.Listen
-var _ = os.Exit
+func handleRequest(conn net.Conn) {
+	defer conn.Close()
+	// reader := bufio.NewReadWriter(conn)
+	response := make([]byte, 8)
+	binary.BigEndian.PutUint64(response, 7)
+	conn.Write(response)
+}
 
 func main() {
 
@@ -17,9 +22,11 @@ func main() {
 		fmt.Println("Failed to bind to port 9092")
 		os.Exit(1)
 	}
-	_, err = l.Accept()
+	conn, err := l.Accept()
 	if err != nil {
 		fmt.Println("Error accepting connection: ", err.Error())
 		os.Exit(1)
 	}
+
+	handleRequest(conn)
 }
