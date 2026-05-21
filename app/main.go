@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/binary"
+	"fmt"
 	"log"
 	"net"
 )
@@ -10,23 +11,19 @@ type Server struct {
 	Listener net.Listener
 }
 
-// Go style constructor
 func NewServer() (*Server, error) {
 	l, err := net.Listen("tcp", "0.0.0.0:9092")
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("NewServer: %w", err)
 	}
-	server := &Server{
-		Listener: l,
-	}
-	return server, nil
+	return &Server{Listener: l}, nil
 }
 
 func (s *Server) Run() error {
 	for {
 		conn, err := s.Listener.Accept()
 		if err != nil {
-			return err
+			return fmt.Errorf("Run: accept: %w", err)
 		}
 		go handleRequest(conn)
 	}
@@ -34,19 +31,20 @@ func (s *Server) Run() error {
 
 func handleRequest(conn net.Conn) {
 	defer conn.Close()
-	// reader := bufio.NewReadWriter(conn)
+
 	response := make([]byte, 8)
 	binary.BigEndian.PutUint64(response, 7)
-	conn.Write(response)
+	if _, err := conn.Write(response); err != nil {
+		log.Printf("handleRequest: write: %v", err)
+	}
 }
 
 func main() {
-
 	server, err := NewServer()
 	if err != nil {
-		log.Fatal("Failed to create server: ", err)
+		log.Fatal(err)
 	}
 	if err = server.Run(); err != nil {
-		log.Fatal("Failed to run server: ", err)
+		log.Fatal(err)
 	}
 }
