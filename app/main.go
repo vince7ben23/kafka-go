@@ -2,10 +2,35 @@ package main
 
 import (
 	"encoding/binary"
-	"fmt"
+	"log"
 	"net"
-	"os"
 )
+
+type Server struct {
+	Listener net.Listener
+}
+
+// Go style constructor
+func NewServer() (*Server, error) {
+	l, err := net.Listen("tcp", "0.0.0.0:9092")
+	if err != nil {
+		return nil, err
+	}
+	server := &Server{
+		Listener: l,
+	}
+	return server, nil
+}
+
+func (s *Server) Run() error {
+	for {
+		conn, err := s.Listener.Accept()
+		if err != nil {
+			return err
+		}
+		go handleRequest(conn)
+	}
+}
 
 func handleRequest(conn net.Conn) {
 	defer conn.Close()
@@ -17,16 +42,11 @@ func handleRequest(conn net.Conn) {
 
 func main() {
 
-	l, err := net.Listen("tcp", "0.0.0.0:9092")
+	server, err := NewServer()
 	if err != nil {
-		fmt.Println("Failed to bind to port 9092")
-		os.Exit(1)
+		log.Fatal("Failed to create server: ", err)
 	}
-	conn, err := l.Accept()
-	if err != nil {
-		fmt.Println("Error accepting connection: ", err.Error())
-		os.Exit(1)
+	if err = server.Run(); err != nil {
+		log.Fatal("Failed to run server: ", err)
 	}
-
-	handleRequest(conn)
 }
