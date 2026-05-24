@@ -29,49 +29,18 @@ func (s *Server) Run() error {
 	}
 }
 
-type Request struct {
-	MessageSize       int32
-	RequestAPIKey     int16
-	RequestAPIVersion int16
-	CorrelationID     int32
-}
-
-type Response struct {
-	MessageSize   int32
-	CorrelationID int32
-	ErrorCode     int16
-}
-
-func NewResponse(req *Request) *Response {
-	resp := &Response{
-		CorrelationID: req.CorrelationID,
+func writeResponse(conn net.Conn, resp Encoder) error {
+	data := resp.Encode()
+	msgSize := MessageSize(len(data))
+	log.Printf("Message size: %d bytes, response: %+v\n", msgSize, resp)
+	if err := binary.Write(conn, binary.BigEndian, msgSize); err != nil {
+		return fmt.Errorf("writeResponse: write message size: %w", err)
 	}
-	if req.RequestAPIKey == 18 {
-		if req.RequestAPIVersion >= 0 && req.RequestAPIVersion <= 4 {
-			resp.ErrorCode = 0
-		} else {
-			resp.ErrorCode = 35
-		}
+	_, err := conn.Write(data)
+	if err != nil {
+		return fmt.Errorf("writeResponse: write: %w", err)
 	}
-	return resp
-}
-
-func parseRequest(conn net.Conn) (*Request, error) {
-	req := &Request{}
-
-	if err := binary.Read(conn, binary.BigEndian, &req.MessageSize); err != nil {
-		return nil, fmt.Errorf("read message_size: %w", err)
-	}
-	if err := binary.Read(conn, binary.BigEndian, &req.RequestAPIKey); err != nil {
-		return nil, fmt.Errorf("read api_key: %w", err)
-	}
-	if err := binary.Read(conn, binary.BigEndian, &req.RequestAPIVersion); err != nil {
-		return nil, fmt.Errorf("read api_version: %w", err)
-	}
-	if err := binary.Read(conn, binary.BigEndian, &req.CorrelationID); err != nil {
-		return nil, fmt.Errorf("read correlation_id: %w", err)
-	}
-	return req, nil
+	return nil
 }
 
 func handleRequest(conn net.Conn) {
@@ -85,9 +54,8 @@ func handleRequest(conn net.Conn) {
 	log.Printf("request: %+v\n", req)
 
 	resp := NewResponse(req)
-	log.Printf("response: %+v\n", resp)
 
-	if err := binary.Write(conn, binary.BigEndian, resp); err != nil {
+	if err := writeResponse(conn, resp); err != nil {
 		log.Printf("handleRequest: write response: %v", err)
 		return
 	}

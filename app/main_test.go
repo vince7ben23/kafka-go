@@ -91,31 +91,84 @@ func TestHandleRequest(t *testing.T) {
 
 			go handleRequest(server)
 
-			writeRequestHeader(client, 10, 18, 4, tt.correlationID)
+			writeRequestHeader(client, 8, 18, 4, tt.correlationID)
 
-			var resp Response
-			if err := binary.Read(client, binary.BigEndian, &resp); err != nil {
-				t.Fatalf("read response: %v", err)
+			var msgSize int32
+			if err := binary.Read(client, binary.BigEndian, &msgSize); err != nil {
+				t.Fatalf("read message size: %v", err)
 			}
+			returnedData := make([]byte, msgSize)
+			if _, err := io.ReadFull(client, returnedData); err != nil {
+				t.Fatalf("read response bytes: %v", err)
+			}
+			reader := bytes.NewReader(returnedData)
+			var resp ApiVersionsResponse
+			binary.Read(reader, binary.BigEndian, &resp.CorrelationID)
+			binary.Read(reader, binary.BigEndian, &resp.ErrorCode)
+			binary.Read(reader, binary.BigEndian, &resp.APIArrayLength)
+			resp.APIVersions = make([]ApiVersion, int(resp.APIArrayLength)-1)
+			for i := range resp.APIVersions {
+				binary.Read(reader, binary.BigEndian, &resp.APIVersions[i])
+			}
+			binary.Read(reader, binary.BigEndian, &resp.ThrottleTime)
+			binary.Read(reader, binary.BigEndian, &resp.TagBuffer)
 			if resp.CorrelationID != tt.correlationID {
 				t.Errorf("CorrelationID: got %d, want %d", resp.CorrelationID, tt.correlationID)
+			}
+			if resp.ErrorCode != 0 {
+				t.Errorf("ErrorCode: got %d, want 0", resp.ErrorCode)
 			}
 		})
 	}
 }
 
-func TestResponseBinaryEncoding(t *testing.T) {
-	resp := &Response{
-		MessageSize:   4,
-		CorrelationID: 12345,
+func TestNewResponse(t *testing.T) {
+	t.Run("ApiVersions valid version returns ApiVersionsResponse with no error", func(t *testing.T) {
+		req := &Request{RequestAPIKey: APIKeyApiVersions, RequestAPIVersion: 4, CorrelationID: 42}
+		resp, ok := NewResponse(req).(*ApiVersionsResponse)
+		if !ok {
+			t.Fatal("expected *ApiVersionsResponse")
+		}
+		if resp.CorrelationID != 42 {
+			t.Errorf("CorrelationID: got %d, want 42", resp.CorrelationID)
+		}
+		if resp.ErrorCode != 0 {
+			t.Errorf("ErrorCode: got %d, want 0", resp.ErrorCode)
+		}
+	})
+
+	t.Run("ApiVersions unsupported version returns error code 35", func(t *testing.T) {
+		req := &Request{RequestAPIKey: APIKeyApiVersions, RequestAPIVersion: 99, CorrelationID: 7}
+		resp, ok := NewResponse(req).(*ApiVersionsResponse)
+		if !ok {
+			t.Fatal("expected *ApiVersionsResponse")
+		}
+		if resp.ErrorCode != 35 {
+			t.Errorf("ErrorCode: got %d, want 35", resp.ErrorCode)
+		}
+	})
+
+	t.Run("unknown API key returns base Response", func(t *testing.T) {
+		req := &Request{RequestAPIKey: 99, CorrelationID: 5}
+		resp, ok := NewResponse(req).(*Response)
+		if !ok {
+			t.Fatal("expected *Response")
+		}
+		if resp.CorrelationID != 5 {
+			t.Errorf("CorrelationID: got %d, want 5", resp.CorrelationID)
+		}
+	})
+}
+
+func TestApiVersionsResponseBinaryEncoding(t *testing.T) {
+	resp := &ApiVersionsResponse{
+		Response:  Response{CorrelationID: 12345},
+		ErrorCode: 0,
 	}
-	var buf bytes.Buffer
-	if err := binary.Write(&buf, binary.BigEndian, resp); err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	// MessageSize=4 → 0x00000004, CorrelationID=12345 → 0x00003039, ErrorCode=0 → 0x0000
-	want := []byte{0x00, 0x00, 0x00, 0x04, 0x00, 0x00, 0x30, 0x39, 0x00, 0x00}
-	if !bytes.Equal(buf.Bytes(), want) {
-		t.Errorf("encoding: got %#v, want %#v", buf.Bytes(), want)
+	got := resp.Encode()
+	// CorrelationID=12345 → 0x00003039, ErrorCode=0 → 0x0000
+	want := []byte{0x00, 0x00, 0x30, 0x39, 0x00, 0x00}
+	if !bytes.Equal(got[:len(want)], want) {
+		t.Errorf("encoding prefix: got %#v, want %#v", got[:len(want)], want)
 	}
 }
