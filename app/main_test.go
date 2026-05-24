@@ -23,9 +23,9 @@ func TestParseRequest(t *testing.T) {
 		apiVersion    int16
 		correlationID int32
 	}{
-		{"ApiVersions request", 10, 18, 4, 42},
+		{"ApiVersions request", 8, 18, 4, 42},
 		{"zero correlation ID", 8, 1, 0, 0},
-		{"max int32 correlation ID", 12, 18, 4, 2147483647},
+		{"max int32 correlation ID", 8, 18, 4, 2147483647},
 	}
 
 	for _, tt := range tests {
@@ -34,8 +34,9 @@ func TestParseRequest(t *testing.T) {
 			defer server.Close()
 
 			go func() {
+				defer client.Close()
 				writeRequestHeader(client, tt.msgSize, tt.apiKey, tt.apiVersion, tt.correlationID)
-				client.Close()
+
 			}()
 
 			h, err := parseRequest(server)
