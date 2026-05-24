@@ -29,7 +29,7 @@ func (s *Server) Run() error {
 	}
 }
 
-type RequestHeader struct {
+type Request struct {
 	MessageSize       int32
 	RequestAPIKey     int16
 	RequestAPIVersion int16
@@ -39,40 +39,54 @@ type RequestHeader struct {
 type Response struct {
 	MessageSize   int32
 	CorrelationID int32
+	ErrorCode     int16
 }
 
-func parseRequestHeader(conn net.Conn) (*RequestHeader, error) {
-	h := &RequestHeader{}
+func NewResponse(req *Request) *Response {
+	resp := &Response{
+		CorrelationID: req.CorrelationID,
+	}
+	if req.RequestAPIKey == 18 {
+		if req.RequestAPIVersion >= 0 && req.RequestAPIVersion <= 4 {
+			resp.ErrorCode = 0
+		} else {
+			resp.ErrorCode = 35
+		}
+	}
+	return resp
+}
 
-	if err := binary.Read(conn, binary.BigEndian, &h.MessageSize); err != nil {
+func parseRequest(conn net.Conn) (*Request, error) {
+	req := &Request{}
+
+	if err := binary.Read(conn, binary.BigEndian, &req.MessageSize); err != nil {
 		return nil, fmt.Errorf("read message_size: %w", err)
 	}
-	if err := binary.Read(conn, binary.BigEndian, &h.RequestAPIKey); err != nil {
+	if err := binary.Read(conn, binary.BigEndian, &req.RequestAPIKey); err != nil {
 		return nil, fmt.Errorf("read api_key: %w", err)
 	}
-	if err := binary.Read(conn, binary.BigEndian, &h.RequestAPIVersion); err != nil {
+	if err := binary.Read(conn, binary.BigEndian, &req.RequestAPIVersion); err != nil {
 		return nil, fmt.Errorf("read api_version: %w", err)
 	}
-	if err := binary.Read(conn, binary.BigEndian, &h.CorrelationID); err != nil {
+	if err := binary.Read(conn, binary.BigEndian, &req.CorrelationID); err != nil {
 		return nil, fmt.Errorf("read correlation_id: %w", err)
 	}
-	return h, nil
+	return req, nil
 }
 
 func handleRequest(conn net.Conn) {
 	defer conn.Close()
 
-	reqHeader, err := parseRequestHeader(conn)
+	req, err := parseRequest(conn)
 	if err != nil {
-		log.Printf("handleRequest: parse header: %v", err)
+		log.Printf("handleRequest: parse request: %v", err)
 		return
 	}
-	log.Printf("apiKey=%d apiVersion=%d correlationID=%d",
-		reqHeader.RequestAPIKey, reqHeader.RequestAPIVersion, reqHeader.CorrelationID)
+	log.Printf("request: %+v\n", req)
 
-	resp := &Response{
-		CorrelationID: reqHeader.CorrelationID,
-	}
+	resp := NewResponse(req)
+	log.Printf("response: %+v\n", resp)
+
 	if err := binary.Write(conn, binary.BigEndian, resp); err != nil {
 		log.Printf("handleRequest: write response: %v", err)
 		return

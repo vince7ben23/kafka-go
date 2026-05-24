@@ -15,7 +15,7 @@ func writeRequestHeader(w io.Writer, msgSize int32, apiKey int16, apiVersion int
 	binary.Write(w, binary.BigEndian, correlationID)
 }
 
-func TestParseRequestHeader(t *testing.T) {
+func TestParseRequest(t *testing.T) {
 	tests := []struct {
 		name          string
 		msgSize       int32
@@ -38,7 +38,7 @@ func TestParseRequestHeader(t *testing.T) {
 				client.Close()
 			}()
 
-			h, err := parseRequestHeader(server)
+			h, err := parseRequest(server)
 			if err != nil {
 				t.Fatalf("unexpected error: %v", err)
 			}
@@ -58,7 +58,7 @@ func TestParseRequestHeader(t *testing.T) {
 	}
 }
 
-func TestParseRequestHeaderTruncated(t *testing.T) {
+func TestParseRequestTruncated(t *testing.T) {
 	client, server := net.Pipe()
 	defer server.Close()
 
@@ -68,7 +68,7 @@ func TestParseRequestHeaderTruncated(t *testing.T) {
 		client.Close()
 	}()
 
-	_, err := parseRequestHeader(server)
+	_, err := parseRequest(server)
 	if err == nil {
 		t.Fatal("expected error for truncated header, got nil")
 	}
@@ -113,8 +113,8 @@ func TestResponseBinaryEncoding(t *testing.T) {
 	if err := binary.Write(&buf, binary.BigEndian, resp); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	// MessageSize=4 → 0x00000004, CorrelationID=12345 → 0x00003039
-	want := []byte{0x00, 0x00, 0x00, 0x04, 0x00, 0x00, 0x30, 0x39}
+	// MessageSize=4 → 0x00000004, CorrelationID=12345 → 0x00003039, ErrorCode=0 → 0x0000
+	want := []byte{0x00, 0x00, 0x00, 0x04, 0x00, 0x00, 0x30, 0x39, 0x00, 0x00}
 	if !bytes.Equal(buf.Bytes(), want) {
 		t.Errorf("encoding: got %#v, want %#v", buf.Bytes(), want)
 	}
