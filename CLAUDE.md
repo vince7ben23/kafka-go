@@ -33,6 +33,23 @@ codecrafters submit
 - Strings: int16 length prefix + UTF-8 bytes (or -1 for null)
 - Arrays: int32 count prefix + elements
 
+## Pre-commit Hooks
+
+Hooks run `go fmt`, `go vet`, `go build`, and `go test` automatically on every commit.
+
+```bash
+# Install pre-commit (once)
+pip3 install pre-commit
+
+# Install hooks into .git/hooks/
+pre-commit install
+
+# Run manually against all files
+pre-commit run --all-files
+```
+
+Config: `.pre-commit-config.yaml`
+
 ## CodeCrafters Infrastructure
 - `.codecrafters/compile.sh` — how CodeCrafters CI compiles the project
 - `.codecrafters/run.sh` — how CodeCrafters CI runs the project

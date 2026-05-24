@@ -23,6 +23,21 @@ codecrafters submit
 
 That's all!
 
+# Pre-commit Hooks
+
+Hooks run `go fmt`, `go vet`, `go build`, and `go test` automatically on every commit.
+
+```sh
+# Install pre-commit (once)
+pip3 install pre-commit
+
+# Install hooks into .git/hooks/
+pre-commit install
+
+# Run manually against all files
+pre-commit run --all-files
+```
+
 # Stage 2 & beyond
 
 Note: This section is for stages 2 and beyond.

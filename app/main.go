@@ -30,10 +30,10 @@ func (s *Server) Run() error {
 }
 
 type RequestHeader struct {
-	MessageSize        int32
-	RequestAPIKey      int16
-	RequestAPIVersion  int16
-	CorrelationID      int32
+	MessageSize       int32
+	RequestAPIKey     int16
+	RequestAPIVersion int16
+	CorrelationID     int32
 }
 
 type Response struct {

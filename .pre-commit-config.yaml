@@ -1,0 +1,27 @@
+repos:
+  - repo: local
+    hooks:
+      - id: go-fmt
+        name: go fmt
+        language: system  
+        entry: go fmt ./app/...
+        pass_filenames: false
+        types: [go]     
+      - id: go-vet
+        name: go vet
+        language: system
+        entry: go vet ./app/...
+        pass_filenames: false
+        types: [go]
+      - id: go-build
+        name: go build
+        language: system
+        entry: go build -o /dev/null ./app/...
+        pass_filenames: false
+        types: [go]
+      - id: go-test
+        name: go test 
+        language: system
+        entry: go test -v ./app/...
+        pass_filenames: false
+        types: [go]
