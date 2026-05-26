@@ -66,7 +66,8 @@ func createApiVersionsResponse(req *Request) *ApiVersionsResponse {
 	if req.RequestAPIVersion < 0 || req.RequestAPIVersion > 4 {
 		errorCode = 35
 	}
-	apiArrayLength := int8(2)
+	// Kafka compact array: length field = actual count + 1 (flexible version encoding)
+	apiArrayLength := int8(2) // 1 element
 	apiVersions := []ApiVersion{
 		{APIKey: APIKeyApiVersions, MinVersion: 0, MaxVersion: 4, TagBuffer: 0},
 	}

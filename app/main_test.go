@@ -8,20 +8,33 @@ import (
 	"testing"
 )
 
+func mustBinaryWrite(w io.Writer, order binary.ByteOrder, data any) {
+	if err := binary.Write(w, order, data); err != nil {
+		panic(err)
+	}
+}
+
+func mustBinaryRead(t *testing.T, r io.Reader, order binary.ByteOrder, data any) {
+	t.Helper()
+	if err := binary.Read(r, order, data); err != nil {
+		t.Fatalf("read response field: %v", err)
+	}
+}
+
 // writeRequestHeader writes a complete minimal Kafka request:
 // msgSize(4) apiKey(2) apiVersion(2) correlationID(4) clientIDLength(2=-1 null)
-// tagBuffer(1=0) bodyClientIDLength(1=1 empty) bodySoftwareVersionLength(1=1 empty) bodyTagBuffer(1=0)
+// tagBuffer(1=0) body(3 bytes: empty compact clientID + softwareVersion + tagBuffer)
 // msgSize should be 14 (2+2+4+2+1+1+1+1).
 func writeRequestHeader(w io.Writer, msgSize int32, apiKey int16, apiVersion int16, correlationID int32) {
-	binary.Write(w, binary.BigEndian, msgSize)
-	binary.Write(w, binary.BigEndian, apiKey)
-	binary.Write(w, binary.BigEndian, apiVersion)
-	binary.Write(w, binary.BigEndian, correlationID)
-	binary.Write(w, binary.BigEndian, int16(-1)) // null ClientID
-	binary.Write(w, binary.BigEndian, int8(0))   // TagBuffer (empty)
-	binary.Write(w, binary.BigEndian, int8(1))   // BodyClientIDLength (empty compact string)
-	binary.Write(w, binary.BigEndian, int8(1))   // BodySoftwareVersionLength (empty compact string)
-	binary.Write(w, binary.BigEndian, int8(0))   // BodyTagBuffer (empty)
+	mustBinaryWrite(w, binary.BigEndian, msgSize)
+	mustBinaryWrite(w, binary.BigEndian, apiKey)
+	mustBinaryWrite(w, binary.BigEndian, apiVersion)
+	mustBinaryWrite(w, binary.BigEndian, correlationID)
+	mustBinaryWrite(w, binary.BigEndian, int16(-1)) // null ClientID
+	mustBinaryWrite(w, binary.BigEndian, int8(0))   // TagBuffer (empty)
+	mustBinaryWrite(w, binary.BigEndian, int8(1))   // BodyClientIDLength (empty compact string)
+	mustBinaryWrite(w, binary.BigEndian, int8(1))   // BodySoftwareVersionLength (empty compact string)
+	mustBinaryWrite(w, binary.BigEndian, int8(0))   // BodyTagBuffer (empty)
 }
 
 func TestParseRequest(t *testing.T) {
@@ -113,15 +126,16 @@ func TestHandleRequest(t *testing.T) {
 			}
 			reader := bytes.NewReader(returnedData)
 			var resp ApiVersionsResponse
-			binary.Read(reader, binary.BigEndian, &resp.CorrelationID)
-			binary.Read(reader, binary.BigEndian, &resp.ErrorCode)
-			binary.Read(reader, binary.BigEndian, &resp.APIArrayLength)
+			mustBinaryRead(t, reader, binary.BigEndian, &resp.CorrelationID)
+			mustBinaryRead(t, reader, binary.BigEndian, &resp.ErrorCode)
+			mustBinaryRead(t, reader, binary.BigEndian, &resp.APIArrayLength)
+			// Kafka compact array: length field = actual count + 1 (flexible version encoding)
 			resp.APIVersions = make([]ApiVersion, int(resp.APIArrayLength)-1)
 			for i := range resp.APIVersions {
-				binary.Read(reader, binary.BigEndian, &resp.APIVersions[i])
+				mustBinaryRead(t, reader, binary.BigEndian, &resp.APIVersions[i])
 			}
-			binary.Read(reader, binary.BigEndian, &resp.ThrottleTime)
-			binary.Read(reader, binary.BigEndian, &resp.TagBuffer)
+			mustBinaryRead(t, reader, binary.BigEndian, &resp.ThrottleTime)
+			mustBinaryRead(t, reader, binary.BigEndian, &resp.TagBuffer)
 			if resp.CorrelationID != tt.correlationID {
 				t.Errorf("CorrelationID: got %d, want %d", resp.CorrelationID, tt.correlationID)
 			}

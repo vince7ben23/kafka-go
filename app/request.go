@@ -9,18 +9,14 @@ import (
 )
 
 type Request struct {
-	MessageSize                      int32
-	RequestAPIKey                    int16
-	RequestAPIVersion                int16
-	CorrelationID                    int32
-	ClientIDLength                   int16
-	ClientIDContent                  string
-	TagBuffer                        int8
-	BodyClientIDLength               int8
-	BodyClientIDContent              string
-	BodyClientSoftwareVersionLength  int8
-	BodyClientSoftwareVersionContent string
-	BodyTagBuffer                    int8
+	MessageSize       int32
+	RequestAPIKey     int16
+	RequestAPIVersion int16
+	CorrelationID     int32
+	ClientIDLength    int16
+	ClientIDContent   string
+	TagBuffer         int8
+	Body              []byte // remaining bytes after header; parsed by each API's handler
 }
 
 func parseRequest(conn net.Conn) (*Request, error) {
@@ -58,29 +54,7 @@ func parseRequest(conn net.Conn) (*Request, error) {
 	if err := binary.Read(r, binary.BigEndian, &req.TagBuffer); err != nil {
 		return nil, fmt.Errorf("read tag_buffer: %w", err)
 	}
-	if err := binary.Read(r, binary.BigEndian, &req.BodyClientIDLength); err != nil {
-		return nil, fmt.Errorf("read body_client_id_length: %w", err)
-	}
-	if req.BodyClientIDLength > 1 {
-		buf := make([]byte, req.BodyClientIDLength-1)
-		if _, err := io.ReadFull(r, buf); err != nil {
-			return nil, fmt.Errorf("read body_client_id_content: %w", err)
-		}
-		req.BodyClientIDContent = string(buf)
-	}
-	if err := binary.Read(r, binary.BigEndian, &req.BodyClientSoftwareVersionLength); err != nil {
-		return nil, fmt.Errorf("read body_client_software_version_length: %w", err)
-	}
-	if req.BodyClientSoftwareVersionLength > 1 {
-		buf := make([]byte, req.BodyClientSoftwareVersionLength-1)
-		if _, err := io.ReadFull(r, buf); err != nil {
-			return nil, fmt.Errorf("read body_client_software_version_content: %w", err)
-		}
-		req.BodyClientSoftwareVersionContent = string(buf)
-	}
-	if err := binary.Read(r, binary.BigEndian, &req.BodyTagBuffer); err != nil {
-		return nil, fmt.Errorf("read body_tag_buffer: %w", err)
-	}
+	req.Body, _ = io.ReadAll(r)
 
 	return req, nil
 }

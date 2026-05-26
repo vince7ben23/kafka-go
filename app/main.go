@@ -24,10 +24,10 @@ func NewServer() (*Server, error) {
 func (s *Server) Run() error {
 	for {
 		conn, err := s.Listener.Accept()
-		log.Printf("Accepted TCP connection from %s\n", conn.RemoteAddr())
 		if err != nil {
 			return fmt.Errorf("Run: accept: %w", err)
 		}
+		log.Printf("Accepted TCP connection from %s\n", conn.RemoteAddr())
 		go handleRequest(conn)
 	}
 }
