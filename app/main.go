@@ -2,7 +2,9 @@ package main
 
 import (
 	"encoding/binary"
+	"errors"
 	"fmt"
+	"io"
 	"log"
 	"net"
 )
@@ -22,6 +24,7 @@ func NewServer() (*Server, error) {
 func (s *Server) Run() error {
 	for {
 		conn, err := s.Listener.Accept()
+		log.Printf("Accepted TCP connection from %s\n", conn.RemoteAddr())
 		if err != nil {
 			return fmt.Errorf("Run: accept: %w", err)
 		}
@@ -45,20 +48,25 @@ func writeResponse(conn net.Conn, resp Encoder) error {
 
 func handleRequest(conn net.Conn) {
 	defer conn.Close()
+	for {
+		req, err := parseRequest(conn)
+		if err != nil {
+			if errors.Is(err, io.EOF) {
+				return
+			}
+			log.Printf("handleRequest: parse request: %v", err)
+			return
+		}
+		log.Printf("request: %+v\n", req)
 
-	req, err := parseRequest(conn)
-	if err != nil {
-		log.Printf("handleRequest: parse request: %v", err)
-		return
+		resp := NewResponse(req)
+
+		if err := writeResponse(conn, resp); err != nil {
+			log.Printf("handleRequest: write response: %v", err)
+			return
+		}
 	}
-	log.Printf("request: %+v\n", req)
 
-	resp := NewResponse(req)
-
-	if err := writeResponse(conn, resp); err != nil {
-		log.Printf("handleRequest: write response: %v", err)
-		return
-	}
 }
 
 func main() {
