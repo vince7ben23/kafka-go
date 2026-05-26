@@ -8,11 +8,20 @@ import (
 	"testing"
 )
 
+// writeRequestHeader writes a complete minimal Kafka request:
+// msgSize(4) apiKey(2) apiVersion(2) correlationID(4) clientIDLength(2=-1 null)
+// tagBuffer(1=0) bodyClientIDLength(1=1 empty) bodySoftwareVersionLength(1=1 empty) bodyTagBuffer(1=0)
+// msgSize should be 14 (2+2+4+2+1+1+1+1).
 func writeRequestHeader(w io.Writer, msgSize int32, apiKey int16, apiVersion int16, correlationID int32) {
 	binary.Write(w, binary.BigEndian, msgSize)
 	binary.Write(w, binary.BigEndian, apiKey)
 	binary.Write(w, binary.BigEndian, apiVersion)
 	binary.Write(w, binary.BigEndian, correlationID)
+	binary.Write(w, binary.BigEndian, int16(-1)) // null ClientID
+	binary.Write(w, binary.BigEndian, int8(0))   // TagBuffer (empty)
+	binary.Write(w, binary.BigEndian, int8(1))   // BodyClientIDLength (empty compact string)
+	binary.Write(w, binary.BigEndian, int8(1))   // BodySoftwareVersionLength (empty compact string)
+	binary.Write(w, binary.BigEndian, int8(0))   // BodyTagBuffer (empty)
 }
 
 func TestParseRequest(t *testing.T) {
@@ -23,9 +32,9 @@ func TestParseRequest(t *testing.T) {
 		apiVersion    int16
 		correlationID int32
 	}{
-		{"ApiVersions request", 8, 18, 4, 42},
-		{"zero correlation ID", 8, 1, 0, 0},
-		{"max int32 correlation ID", 8, 18, 4, 2147483647},
+		{"ApiVersions request", 14, 18, 4, 42},
+		{"zero correlation ID", 14, 1, 0, 0},
+		{"max int32 correlation ID", 14, 18, 4, 2147483647},
 	}
 
 	for _, tt := range tests {
@@ -92,7 +101,7 @@ func TestHandleRequest(t *testing.T) {
 
 			go handleRequest(server)
 
-			writeRequestHeader(client, 8, 18, 4, tt.correlationID)
+			writeRequestHeader(client, 14, 18, 4, tt.correlationID)
 
 			var msgSize int32
 			if err := binary.Read(client, binary.BigEndian, &msgSize); err != nil {
