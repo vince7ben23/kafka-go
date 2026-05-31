@@ -59,7 +59,11 @@ func handleRequest(conn net.Conn) {
 		}
 		log.Printf("request: %+v\n", req)
 
-		resp := NewResponse(req)
+		resp, err := NewResponse(req)
+		if err != nil {
+			log.Printf("handleRequest: new response: %v", err)
+			return
+		}
 
 		if err := writeResponse(conn, resp); err != nil {
 			log.Printf("handleRequest: write response: %v", err)

@@ -8,37 +8,49 @@ import (
 func TestNewResponse(t *testing.T) {
 	t.Run("ApiVersions valid version returns ApiVersionsResponse with no error", func(t *testing.T) {
 		req := &Request{RequestAPIKey: APIKeyApiVersions, RequestAPIVersion: 4, CorrelationID: 42}
-		resp, ok := NewResponse(req).(*ApiVersionsResponse)
+		resp, err := NewResponse(req)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		avResp, ok := resp.(*ApiVersionsResponse)
 		if !ok {
 			t.Fatal("expected *ApiVersionsResponse")
 		}
-		if resp.CorrelationID != 42 {
-			t.Errorf("CorrelationID: got %d, want 42", resp.CorrelationID)
+		if avResp.CorrelationID != 42 {
+			t.Errorf("CorrelationID: got %d, want 42", avResp.CorrelationID)
 		}
-		if resp.ErrorCode != 0 {
-			t.Errorf("ErrorCode: got %d, want 0", resp.ErrorCode)
+		if avResp.ErrorCode != 0 {
+			t.Errorf("ErrorCode: got %d, want 0", avResp.ErrorCode)
 		}
 	})
 
 	t.Run("ApiVersions unsupported version returns error code 35", func(t *testing.T) {
 		req := &Request{RequestAPIKey: APIKeyApiVersions, RequestAPIVersion: 99, CorrelationID: 7}
-		resp, ok := NewResponse(req).(*ApiVersionsResponse)
+		resp, err := NewResponse(req)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		avResp, ok := resp.(*ApiVersionsResponse)
 		if !ok {
 			t.Fatal("expected *ApiVersionsResponse")
 		}
-		if resp.ErrorCode != 35 {
-			t.Errorf("ErrorCode: got %d, want 35", resp.ErrorCode)
+		if avResp.ErrorCode != 35 {
+			t.Errorf("ErrorCode: got %d, want 35", avResp.ErrorCode)
 		}
 	})
 
 	t.Run("unknown API key returns base Response", func(t *testing.T) {
 		req := &Request{RequestAPIKey: 99, CorrelationID: 5}
-		resp, ok := NewResponse(req).(*Response)
+		resp, err := NewResponse(req)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		baseResp, ok := resp.(*Response)
 		if !ok {
 			t.Fatal("expected *Response")
 		}
-		if resp.CorrelationID != 5 {
-			t.Errorf("CorrelationID: got %d, want 5", resp.CorrelationID)
+		if baseResp.CorrelationID != 5 {
+			t.Errorf("CorrelationID: got %d, want 5", baseResp.CorrelationID)
 		}
 	})
 }

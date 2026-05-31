@@ -3,8 +3,10 @@ package main
 import (
 	"bytes"
 	"encoding/binary"
+	"fmt"
 )
 
+const APIKeyApiProduce = int16(0)
 const APIKeyApiVersions = int16(18)
 
 type MessageSize int32
@@ -52,29 +54,41 @@ type ApiVersion struct {
 	TagBuffer  int8
 }
 
-func NewResponse(req *Request) Encoder {
+func NewResponse(req *Request) (Encoder, error) {
 	switch req.RequestAPIKey {
 	case APIKeyApiVersions:
 		return createApiVersionsResponse(req)
 	default:
-		return &Response{CorrelationID: req.CorrelationID}
+		return &Response{CorrelationID: req.CorrelationID}, nil
 	}
 }
 
-func createApiVersionsResponse(req *Request) *ApiVersionsResponse {
+func createApiVersionsResponse(req *Request) (*ApiVersionsResponse, error) {
 	errorCode := int16(0)
 	if req.RequestAPIVersion < 0 || req.RequestAPIVersion > 4 {
 		errorCode = 35
 	}
 	// Kafka compact array: length field = actual count + 1 (flexible version encoding)
-	apiArrayLength := int8(2) // 1 element
 	apiVersions := []ApiVersion{
 		{APIKey: APIKeyApiVersions, MinVersion: 0, MaxVersion: 4, TagBuffer: 0},
+		{APIKey: APIKeyApiProduce, MinVersion: 0, MaxVersion: 11, TagBuffer: 0},
+	}
+
+	apiArrayLength, err := toCompactArrayLen(len(apiVersions))
+	if err != nil {
+		return nil, err
 	}
 	return &ApiVersionsResponse{
 		Response:       Response{CorrelationID: req.CorrelationID},
 		ErrorCode:      errorCode,
 		APIArrayLength: apiArrayLength,
 		APIVersions:    apiVersions,
+	}, nil
+}
+
+func toCompactArrayLen(n int) (int8, error) {
+	if n+1 > 127 {
+		return 0, fmt.Errorf("toCompactArrayLen: array too large: %d", n)
 	}
+	return int8(n + 1), nil
 }
