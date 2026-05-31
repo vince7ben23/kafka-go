@@ -62,6 +62,7 @@ func handleRequest(conn net.Conn) {
 		resp, err := NewResponse(req)
 		if err != nil {
 			log.Printf("handleRequest: new response: %v", err)
+			_ = writeResponse(conn, &Response{CorrelationID: req.CorrelationID})
 			return
 		}
 

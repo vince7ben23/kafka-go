@@ -56,29 +56,36 @@ func TestNewResponse(t *testing.T) {
 }
 
 func TestApiVersionsResponseBinaryEncoding(t *testing.T) {
-	resp := &ApiVersionsResponse{
-		Response:       Response{CorrelationID: 12345},
-		ErrorCode:      0,
-		APIArrayLength: 2,
-		APIVersions: []ApiVersion{
-			{APIKey: APIKeyApiVersions, MinVersion: 0, MaxVersion: 4, TagBuffer: 0},
-		},
-		ThrottleTime: 0,
-		TagBuffer:    0,
+	req := &Request{RequestAPIKey: APIKeyApiVersions, RequestAPIVersion: 4, CorrelationID: 12345}
+	enc, err := NewResponse(req)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
 	}
-	got := resp.Encode()
-	// Encoded layout (19 bytes, big-endian):
+	got := enc.Encode()
+	// Encoded layout (26 bytes, big-endian):
 	// [0:4]   CorrelationID=12345 → 0x00 0x00 0x30 0x39
 	// [4:6]   ErrorCode=0         → 0x00 0x00
-	// [6]     APIArrayLength=2    → 0x02  (compact array: 1 entry + 1)
-	// [7:9]   APIKey=18           → 0x00 0x12
+	// [6]     APIArrayLength=3    → 0x03  (compact array: 2 entries + 1)
+	// [7:9]   APIKey=18 (ApiVersions) → 0x00 0x12
 	// [9:11]  MinVersion=0        → 0x00 0x00
 	// [11:13] MaxVersion=4        → 0x00 0x04
-	// [13]    ApiVersion TagBuffer→ 0x00
-	// [14:18] ThrottleTime=0      → 0x00 0x00 0x00 0x00
-	// [18]    TagBuffer=0         → 0x00
-	want := []byte{0x00, 0x00, 0x30, 0x39, 0x00, 0x00, 0x02, 0x00, 0x12, 0x00, 0x00, 0x00, 0x04, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00}
+	// [13]    TagBuffer           → 0x00
+	// [14:16] APIKey=0 (ApiProduce) → 0x00 0x00
+	// [16:18] MinVersion=0        → 0x00 0x00
+	// [18:20] MaxVersion=11       → 0x00 0x0B
+	// [20]    TagBuffer           → 0x00
+	// [21:25] ThrottleTime=0      → 0x00 0x00 0x00 0x00
+	// [25]    TagBuffer=0         → 0x00
+	want := []byte{
+		0x00, 0x00, 0x30, 0x39, // CorrelationID
+		0x00, 0x00, // ErrorCode
+		0x03,                                     // APIArrayLength (compact: 2+1)
+		0x00, 0x12, 0x00, 0x00, 0x00, 0x04, 0x00, // ApiVersions entry
+		0x00, 0x00, 0x00, 0x00, 0x00, 0x0B, 0x00, // ApiProduce entry
+		0x00, 0x00, 0x00, 0x00, // ThrottleTime
+		0x00, // TagBuffer
+	}
 	if !bytes.Equal(got, want) {
-		t.Errorf("encoding: got %#v, want %#v", got, want)
+		t.Errorf("encoding mismatch:\ngot  %#v\nwant %#v", got, want)
 	}
 }

@@ -21,7 +21,7 @@ type Response struct {
 
 func (r *Response) Encode() []byte {
 	buf := new(bytes.Buffer)
-	binary.Write(buf, binary.BigEndian, r.CorrelationID)
+	_ = binary.Write(buf, binary.BigEndian, r.CorrelationID)
 	return buf.Bytes()
 }
 
@@ -36,14 +36,14 @@ type ApiVersionsResponse struct {
 
 func (r *ApiVersionsResponse) Encode() []byte {
 	buf := new(bytes.Buffer)
-	binary.Write(buf, binary.BigEndian, r.CorrelationID)
-	binary.Write(buf, binary.BigEndian, r.ErrorCode)
-	binary.Write(buf, binary.BigEndian, r.APIArrayLength)
+	_ = binary.Write(buf, binary.BigEndian, r.CorrelationID)
+	_ = binary.Write(buf, binary.BigEndian, r.ErrorCode)
+	_ = binary.Write(buf, binary.BigEndian, r.APIArrayLength)
 	for _, v := range r.APIVersions {
-		binary.Write(buf, binary.BigEndian, v)
+		_ = binary.Write(buf, binary.BigEndian, v)
 	}
-	binary.Write(buf, binary.BigEndian, r.ThrottleTime)
-	binary.Write(buf, binary.BigEndian, r.TagBuffer)
+	_ = binary.Write(buf, binary.BigEndian, r.ThrottleTime)
+	_ = binary.Write(buf, binary.BigEndian, r.TagBuffer)
 	return buf.Bytes()
 }
 
