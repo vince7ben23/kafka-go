@@ -75,8 +75,8 @@ type ProduceTopicResponse struct {
 type ProduceResponse struct {
 	HeaderResponse
 	HeaderTagBuffer int8
-	ThrottleTimeMs  int32
 	Topics          []ProduceTopicResponse
+	ThrottleTimeMs  int32
 	TagBuffer       int8
 }
 
@@ -98,8 +98,6 @@ func (r *ProduceResponse) Encode() []byte {
 	_ = binary.Write(buf, binary.BigEndian, r.CorrelationID)
 	_ = binary.Write(buf, binary.BigEndian, r.HeaderTagBuffer)
 
-	_ = binary.Write(buf, binary.BigEndian, r.ThrottleTimeMs)
-
 	// responses: COMPACT_ARRAY (count+1)
 	writeUvarint(buf, uint64(len(r.Topics)+1))
 	for _, topic := range r.Topics {
@@ -119,6 +117,7 @@ func (r *ProduceResponse) Encode() []byte {
 		}
 		_ = binary.Write(buf, binary.BigEndian, topic.TagBuffer)
 	}
+	_ = binary.Write(buf, binary.BigEndian, r.ThrottleTimeMs)
 	_ = binary.Write(buf, binary.BigEndian, r.TagBuffer)
 
 	return buf.Bytes()

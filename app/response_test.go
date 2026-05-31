@@ -103,25 +103,24 @@ func TestProduceResponseBinaryEncoding(t *testing.T) {
 	// Encoded layout (57 bytes):
 	// [0:4]   CorrelationID=7          → 0x00 0x00 0x00 0x07
 	// [4]     HeaderTagBuffer=0        → 0x00
-	// [5:9]   ThrottleTimeMs=0         → 0x00 0x00 0x00 0x00
-	// [9]     topics count+1=2         → 0x02
-	// [10]    topic name len+1=11      → 0x0B
-	// [11:21] "test-topic"             → 10 bytes
-	// [21]    partitions count+1=2     → 0x02
-	// [22:26] Index=99                 → 0x00 0x00 0x00 0x63
-	// [26:28] ErrorCode=3              → 0x00 0x03
-	// [28:36] BaseOffset=-1            → 0xFF x8
-	// [36:44] LogAppendTime=0          → 0x00 x8
-	// [44:52] LogStartOffset=0         → 0x00 x8
-	// [52]    record_errors (empty)    → 0x01
-	// [53]    error_message (null)     → 0x00
-	// [54]    partition TagBuffer      → 0x00
-	// [55]    topic TagBuffer          → 0x00
+	// [5]     topics count+1=2         → 0x02
+	// [6]     topic name len+1=11      → 0x0B
+	// [7:17]  "test-topic"             → 10 bytes
+	// [17]    partitions count+1=2     → 0x02
+	// [18:22] Index=99                 → 0x00 0x00 0x00 0x63
+	// [22:24] ErrorCode=3              → 0x00 0x03
+	// [24:32] BaseOffset=-1            → 0xFF x8
+	// [32:40] LogAppendTime=0          → 0x00 x8
+	// [40:48] LogStartOffset=0         → 0x00 x8
+	// [48]    record_errors (empty)    → 0x01
+	// [49]    error_message (null)     → 0x00
+	// [50]    partition TagBuffer      → 0x00
+	// [51]    topic TagBuffer          → 0x00
+	// [52:56] ThrottleTimeMs=0         → 0x00 0x00 0x00 0x00
 	// [56]    body TagBuffer           → 0x00
 	want := []byte{
 		0x00, 0x00, 0x00, 0x07, // CorrelationID
-		0x00,                   // HeaderTagBuffer
-		0x00, 0x00, 0x00, 0x00, // ThrottleTimeMs
+		0x00,                                                   // HeaderTagBuffer
 		0x02,                                                   // topics count+1
 		0x0B, 't', 'e', 's', 't', '-', 't', 'o', 'p', 'i', 'c', // topic name
 		0x02,                   // partitions count+1
@@ -130,10 +129,11 @@ func TestProduceResponseBinaryEncoding(t *testing.T) {
 		0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, // BaseOffset=-1
 		0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // LogAppendTime=0
 		0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // LogStartOffset=0
-		0x01, // record_errors: empty COMPACT_ARRAY
-		0x00, // error_message: null
-		0x00, // partition TagBuffer
-		0x00, // topic TagBuffer
+		0x01,                   // record_errors: empty COMPACT_ARRAY
+		0x00,                   // error_message: null
+		0x00,                   // partition TagBuffer
+		0x00,                   // topic TagBuffer
+		0x00, 0x00, 0x00, 0x00, // ThrottleTimeMs=0
 		0x00, // body TagBuffer
 	}
 	if !bytes.Equal(got, want) {
