@@ -45,14 +45,100 @@ func TestNewResponse(t *testing.T) {
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
-		baseResp, ok := resp.(*Response)
+		baseResp, ok := resp.(*HeaderResponse)
 		if !ok {
-			t.Fatal("expected *Response")
+			t.Fatal("expected *HeaderResponse")
 		}
 		if baseResp.CorrelationID != 5 {
 			t.Errorf("CorrelationID: got %d, want 5", baseResp.CorrelationID)
 		}
 	})
+}
+
+func TestNewResponseProduce(t *testing.T) {
+	body := buildMinimalProduceBody("test-topic", []int32{99})
+	req := &Request{RequestAPIKey: APIKeyApiProduce, RequestAPIVersion: 11, CorrelationID: 7, Body: body}
+	resp, err := NewResponse(req)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	pr, ok := resp.(*ProduceResponse)
+	if !ok {
+		t.Fatal("expected *ProduceResponse")
+	}
+	if pr.CorrelationID != 7 {
+		t.Errorf("CorrelationID: got %d, want 7", pr.CorrelationID)
+	}
+	if len(pr.Topics) != 1 {
+		t.Fatalf("Topics len: got %d, want 1", len(pr.Topics))
+	}
+	if pr.Topics[0].Name != "test-topic" {
+		t.Errorf("topic name: got %q, want %q", pr.Topics[0].Name, "test-topic")
+	}
+	if len(pr.Topics[0].Partitions) != 1 {
+		t.Fatalf("Partitions len: got %d, want 1", len(pr.Topics[0].Partitions))
+	}
+	if pr.Topics[0].Partitions[0].Index != 99 {
+		t.Errorf("partition index: got %d, want 99", pr.Topics[0].Partitions[0].Index)
+	}
+}
+
+func TestProduceResponseBinaryEncoding(t *testing.T) {
+	pr := &ProduceResponse{
+		HeaderResponse:  HeaderResponse{CorrelationID: 7},
+		HeaderTagBuffer: 0,
+		ThrottleTimeMs:  0,
+		Topics: []ProduceTopicResponse{
+			{
+				Name: "test-topic",
+				Partitions: []ProducePartitionResponse{
+					{Index: 99, ErrorCode: 3, BaseOffset: -1, TagBuffer: 0},
+				},
+				TagBuffer: 0,
+			},
+		},
+		TagBuffer: 0,
+	}
+	got := pr.Encode()
+	// Encoded layout (57 bytes):
+	// [0:4]   CorrelationID=7          → 0x00 0x00 0x00 0x07
+	// [4]     HeaderTagBuffer=0        → 0x00
+	// [5:9]   ThrottleTimeMs=0         → 0x00 0x00 0x00 0x00
+	// [9]     topics count+1=2         → 0x02
+	// [10]    topic name len+1=11      → 0x0B
+	// [11:21] "test-topic"             → 10 bytes
+	// [21]    partitions count+1=2     → 0x02
+	// [22:26] Index=99                 → 0x00 0x00 0x00 0x63
+	// [26:28] ErrorCode=3              → 0x00 0x03
+	// [28:36] BaseOffset=-1            → 0xFF x8
+	// [36:44] LogAppendTime=0          → 0x00 x8
+	// [44:52] LogStartOffset=0         → 0x00 x8
+	// [52]    record_errors (empty)    → 0x01
+	// [53]    error_message (null)     → 0x00
+	// [54]    partition TagBuffer      → 0x00
+	// [55]    topic TagBuffer          → 0x00
+	// [56]    body TagBuffer           → 0x00
+	want := []byte{
+		0x00, 0x00, 0x00, 0x07, // CorrelationID
+		0x00,                   // HeaderTagBuffer
+		0x00, 0x00, 0x00, 0x00, // ThrottleTimeMs
+		0x02,                                                   // topics count+1
+		0x0B, 't', 'e', 's', 't', '-', 't', 'o', 'p', 'i', 'c', // topic name
+		0x02,                   // partitions count+1
+		0x00, 0x00, 0x00, 0x63, // Index=99
+		0x00, 0x03, // ErrorCode=3
+		0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, // BaseOffset=-1
+		0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // LogAppendTime=0
+		0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // LogStartOffset=0
+		0x01, // record_errors: empty COMPACT_ARRAY
+		0x00, // error_message: null
+		0x00, // partition TagBuffer
+		0x00, // topic TagBuffer
+		0x00, // body TagBuffer
+	}
+	if !bytes.Equal(got, want) {
+		t.Errorf("encoding mismatch:\ngot  %#v\nwant %#v", got, want)
+	}
 }
 
 func TestApiVersionsResponseBinaryEncoding(t *testing.T) {
