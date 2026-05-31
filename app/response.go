@@ -180,11 +180,12 @@ func createApiProduceResponse(req *Request) (*ProduceResponse, error) {
 		topicResp := ProduceTopicResponse{Name: topic.Name, TagBuffer: 0}
 		for _, part := range topic.PartitionData {
 			topicResp.Partitions = append(topicResp.Partitions, ProducePartitionResponse{
-				Index:         part.Index,
-				ErrorCode:     3,
-				BaseOffset:    -1,
-				TagBuffer:     0,
-				LogAppendTime: -1,
+				Index:          part.Index,
+				ErrorCode:      3,
+				BaseOffset:     -1,
+				TagBuffer:      0,
+				LogAppendTime:  -1,
+				LogStartOffset: -1,
 			})
 		}
 		resp.Topics = append(resp.Topics, topicResp)
