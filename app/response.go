@@ -170,6 +170,8 @@ func createApiProduceResponse(req *Request) (*ProduceResponse, error) {
 		return nil, fmt.Errorf("createApiProduceResponse: %w", err)
 	}
 
+	meta, _ := readClusterMetadata(clusterMetadataLogPath)
+
 	resp := &ProduceResponse{
 		HeaderResponse:  HeaderResponse{CorrelationID: req.CorrelationID},
 		HeaderTagBuffer: 0,
@@ -179,14 +181,27 @@ func createApiProduceResponse(req *Request) (*ProduceResponse, error) {
 	for _, topic := range pr.TopicData {
 		topicResp := ProduceTopicResponse{Name: topic.Name, TagBuffer: 0}
 		for _, part := range topic.PartitionData {
-			topicResp.Partitions = append(topicResp.Partitions, ProducePartitionResponse{
-				Index:          part.Index,
-				ErrorCode:      3,
-				BaseOffset:     -1,
-				TagBuffer:      0,
-				LogAppendTime:  -1,
-				LogStartOffset: -1,
-			})
+			var partResp ProducePartitionResponse
+			if meta != nil && meta.validateTopicPartition(topic.Name, part.Index) {
+				partResp = ProducePartitionResponse{
+					Index:          part.Index,
+					ErrorCode:      0,
+					BaseOffset:     0,
+					LogAppendTime:  -1,
+					LogStartOffset: 0,
+					TagBuffer:      0,
+				}
+			} else {
+				partResp = ProducePartitionResponse{
+					Index:          part.Index,
+					ErrorCode:      3,
+					BaseOffset:     -1,
+					LogAppendTime:  -1,
+					LogStartOffset: -1,
+					TagBuffer:      0,
+				}
+			}
+			topicResp.Partitions = append(topicResp.Partitions, partResp)
 		}
 		resp.Topics = append(resp.Topics, topicResp)
 	}
