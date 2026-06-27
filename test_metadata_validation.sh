@@ -16,6 +16,9 @@
 LOG_DIR="/tmp/kraft-combined-logs/__cluster_metadata-0"
 ACTIVE_LOG="$LOG_DIR/00000000000000000000.log"
 
+echo "=== Setup: generating cluster metadata fixtures ==="
+go run tools/gen_test_logs/main.go -case all
+
 # Produce v11 request: topic="test-topic", partition=0, value="hello"
 # (Same as test_produce_request.sh but partition index = 0 instead of 99)
 req=''

@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"encoding/binary"
 	"fmt"
+	"os"
+	"path/filepath"
 )
 
 const APIKeyApiProduce = int16(0)
@@ -84,6 +86,23 @@ func writeUvarint(buf *bytes.Buffer, v uint64) {
 	b := make([]byte, binary.MaxVarintLen64)
 	n := binary.PutUvarint(b, v)
 	buf.Write(b[:n])
+}
+
+func writePartitionLog(baseDir, topicName string, partitionIdx int32, records []byte) error {
+	dir := filepath.Join(baseDir, fmt.Sprintf("%s-%d", topicName, partitionIdx))
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		return fmt.Errorf("writePartitionLog mkdir: %w", err)
+	}
+	logPath := filepath.Join(dir, "00000000000000000000.log")
+	f, err := os.OpenFile(logPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	if err != nil {
+		return fmt.Errorf("writePartitionLog open: %w", err)
+	}
+	defer f.Close()
+	if _, err := f.Write(records); err != nil {
+		return fmt.Errorf("writePartitionLog write: %w", err)
+	}
+	return nil
 }
 
 func writeCompactString(buf *bytes.Buffer, s string) {
@@ -183,13 +202,27 @@ func createApiProduceResponse(req *Request) (*ProduceResponse, error) {
 		for _, part := range topic.PartitionData {
 			var partResp ProducePartitionResponse
 			if meta != nil && meta.validateTopicPartition(topic.Name, part.Index) {
-				partResp = ProducePartitionResponse{
-					Index:          part.Index,
-					ErrorCode:      0,
-					BaseOffset:     0,
-					LogAppendTime:  -1,
-					LogStartOffset: 0,
-					TagBuffer:      0,
+				if err := writePartitionLog(kafkaLogBaseDir, topic.Name, part.Index, part.Records); err != nil {
+					// Storage write failed: report a non-zero error code so the
+					// client receives a well-formed ProduceResponse rather than
+					// a bare HeaderResponse.
+					partResp = ProducePartitionResponse{
+						Index:          part.Index,
+						ErrorCode:      5, // LEADER_NOT_AVAILABLE as proxy for storage error
+						BaseOffset:     -1,
+						LogAppendTime:  -1,
+						LogStartOffset: -1,
+						TagBuffer:      0,
+					}
+				} else {
+					partResp = ProducePartitionResponse{
+						Index:          part.Index,
+						ErrorCode:      0,
+						BaseOffset:     0,
+						LogAppendTime:  -1,
+						LogStartOffset: 0,
+						TagBuffer:      0,
+					}
 				}
 			} else {
 				partResp = ProducePartitionResponse{

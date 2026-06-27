@@ -9,6 +9,7 @@ package main
 import (
 	"bytes"
 	"encoding/binary"
+	"flag"
 	"log"
 	"os"
 )
@@ -27,28 +28,48 @@ var otherTopicID = [16]byte{
 	0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02,
 }
 
+type fixture struct {
+	caseName string
+	fileName string
+	data     []byte
+}
+
 func main() {
+	caseFlag := flag.String("case", "all", "which fixture to generate: valid | invalid-partition | invalid-topic | all")
+	flag.Parse()
+
 	if err := os.MkdirAll(outDir, 0755); err != nil {
 		log.Fatalf("mkdir: %v", err)
 	}
 
-	// 1. valid topic + valid partition
-	data1 := buildBatch(
-		encodeTopicRecord("test-topic", testTopicID),
-		encodePartitionRecord(0, testTopicID),
-	)
-	write(outDir+"/valid_topic_valid_partition.log", data1)
+	fixtures := []fixture{
+		{
+			"valid",
+			"valid_topic_valid_partition.log",
+			buildBatch(encodeTopicRecord("test-topic", testTopicID), encodePartitionRecord(0, testTopicID)),
+		},
+		{
+			"invalid-partition",
+			"valid_topic_invalid_partition.log",
+			buildBatch(encodeTopicRecord("test-topic", testTopicID), encodePartitionRecord(0, otherTopicID)),
+		},
+		{
+			"invalid-topic",
+			"invalid_topic_invalid_partition.log",
+			buildBatch(),
+		},
+	}
 
-	// 2. valid topic + invalid partition (partition references a different topicID)
-	data2 := buildBatch(
-		encodeTopicRecord("test-topic", testTopicID),
-		encodePartitionRecord(0, otherTopicID),
-	)
-	write(outDir+"/valid_topic_invalid_partition.log", data2)
-
-	// 3. invalid topic + invalid partition (no records)
-	data3 := buildBatch()
-	write(outDir+"/invalid_topic_invalid_partition.log", data3)
+	written := 0
+	for _, f := range fixtures {
+		if *caseFlag == "all" || *caseFlag == f.caseName {
+			write(outDir+"/"+f.fileName, f.data)
+			written++
+		}
+	}
+	if written == 0 {
+		log.Fatalf("unknown -case %q: must be valid | invalid-partition | invalid-topic | all", *caseFlag)
+	}
 
 	log.Printf("written to %s", outDir)
 }

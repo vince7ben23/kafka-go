@@ -2,6 +2,8 @@ package main
 
 import (
 	"bytes"
+	"os"
+	"path/filepath"
 	"testing"
 )
 
@@ -138,6 +140,42 @@ func TestProduceResponseBinaryEncoding(t *testing.T) {
 	}
 	if !bytes.Equal(got, want) {
 		t.Errorf("encoding mismatch:\ngot  %#v\nwant %#v", got, want)
+	}
+}
+
+func TestWritePartitionLog(t *testing.T) {
+	baseDir := t.TempDir()
+	records := []byte{0x00, 0x01, 0x02, 0x03} // arbitrary bytes standing in for a RecordBatch
+	if err := writePartitionLog(baseDir, "my-topic", 3, records); err != nil {
+		t.Fatal(err)
+	}
+	logPath := filepath.Join(baseDir, "my-topic-3", "00000000000000000000.log")
+	got, err := os.ReadFile(logPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(got, records) {
+		t.Errorf("got %v, want %v", got, records)
+	}
+}
+
+func TestWritePartitionLogAppends(t *testing.T) {
+	baseDir := t.TempDir()
+	first := []byte{0x01, 0x02}
+	second := []byte{0x03, 0x04}
+	for _, chunk := range [][]byte{first, second} {
+		if err := writePartitionLog(baseDir, "my-topic", 0, chunk); err != nil {
+			t.Fatal(err)
+		}
+	}
+	logPath := filepath.Join(baseDir, "my-topic-0", "00000000000000000000.log")
+	got, err := os.ReadFile(logPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := append(first, second...)
+	if !bytes.Equal(got, want) {
+		t.Errorf("got %v, want %v", got, want)
 	}
 }
 

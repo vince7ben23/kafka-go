@@ -8,6 +8,8 @@ import (
 	"os"
 )
 
+var kafkaLogBaseDir = "/tmp/kraft-combined-logs"
+
 const (
 	recordTypeTopicRecord     = int8(2)
 	recordTypePartitionRecord = int8(3)
