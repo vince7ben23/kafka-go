@@ -183,6 +183,26 @@ func toCompactArrayLen(n int) (int8, error) {
 	return int8(n + 1), nil
 }
 
+func buildPartitionResponse(meta *ClusterMetadata, topicName string, part ProducePartitionData) ProducePartitionResponse {
+	if meta == nil || !meta.validateTopicPartition(topicName, part.Index) {
+		return ProducePartitionResponse{
+			Index: part.Index, ErrorCode: 3,
+			BaseOffset: -1, LogAppendTime: -1, LogStartOffset: -1,
+		}
+	}
+	if err := writePartitionLog(kafkaLogBaseDir, topicName, part.Index, part.Records); err != nil {
+		// storage write failed — return a well-formed error instead of a bare HeaderResponse
+		return ProducePartitionResponse{
+			Index: part.Index, ErrorCode: 5, // LEADER_NOT_AVAILABLE as proxy for storage error
+			BaseOffset: -1, LogAppendTime: -1, LogStartOffset: -1,
+		}
+	}
+	return ProducePartitionResponse{
+		Index: part.Index, ErrorCode: 0,
+		BaseOffset: 0, LogAppendTime: -1, LogStartOffset: 0,
+	}
+}
+
 func createApiProduceResponse(req *Request) (*ProduceResponse, error) {
 	pr, err := parseProduceRequest(req.Body)
 	if err != nil {
@@ -191,50 +211,11 @@ func createApiProduceResponse(req *Request) (*ProduceResponse, error) {
 
 	meta, _ := readClusterMetadata(clusterMetadataLogPath)
 
-	resp := &ProduceResponse{
-		HeaderResponse:  HeaderResponse{CorrelationID: req.CorrelationID},
-		HeaderTagBuffer: 0,
-		ThrottleTimeMs:  0,
-		TagBuffer:       0,
-	}
+	resp := &ProduceResponse{HeaderResponse: HeaderResponse{CorrelationID: req.CorrelationID}}
 	for _, topic := range pr.TopicData {
-		topicResp := ProduceTopicResponse{Name: topic.Name, TagBuffer: 0}
+		topicResp := ProduceTopicResponse{Name: topic.Name}
 		for _, part := range topic.PartitionData {
-			var partResp ProducePartitionResponse
-			if meta != nil && meta.validateTopicPartition(topic.Name, part.Index) {
-				if err := writePartitionLog(kafkaLogBaseDir, topic.Name, part.Index, part.Records); err != nil {
-					// Storage write failed: report a non-zero error code so the
-					// client receives a well-formed ProduceResponse rather than
-					// a bare HeaderResponse.
-					partResp = ProducePartitionResponse{
-						Index:          part.Index,
-						ErrorCode:      5, // LEADER_NOT_AVAILABLE as proxy for storage error
-						BaseOffset:     -1,
-						LogAppendTime:  -1,
-						LogStartOffset: -1,
-						TagBuffer:      0,
-					}
-				} else {
-					partResp = ProducePartitionResponse{
-						Index:          part.Index,
-						ErrorCode:      0,
-						BaseOffset:     0,
-						LogAppendTime:  -1,
-						LogStartOffset: 0,
-						TagBuffer:      0,
-					}
-				}
-			} else {
-				partResp = ProducePartitionResponse{
-					Index:          part.Index,
-					ErrorCode:      3,
-					BaseOffset:     -1,
-					LogAppendTime:  -1,
-					LogStartOffset: -1,
-					TagBuffer:      0,
-				}
-			}
-			topicResp.Partitions = append(topicResp.Partitions, partResp)
+			topicResp.Partitions = append(topicResp.Partitions, buildPartitionResponse(meta, topic.Name, part))
 		}
 		resp.Topics = append(resp.Topics, topicResp)
 	}
