@@ -10,6 +10,7 @@ import (
 
 const APIKeyApiProduce = int16(0)
 const APIKeyApiVersions = int16(18)
+const APIKeyDescribeTopicPartitions = int16(75)
 
 type MessageSize int32
 
@@ -162,6 +163,7 @@ func createApiVersionsResponse(req *Request) (*ApiVersionsResponse, error) {
 	apiVersions := []ApiVersion{
 		{APIKey: APIKeyApiVersions, MinVersion: 0, MaxVersion: 4, TagBuffer: 0},
 		{APIKey: APIKeyApiProduce, MinVersion: 0, MaxVersion: 11, TagBuffer: 0},
+		{APIKey: APIKeyDescribeTopicPartitions, MinVersion: 0, MaxVersion: 0, TagBuffer: 0},
 	}
 
 	apiArrayLength, err := toCompactArrayLen(len(apiVersions))
