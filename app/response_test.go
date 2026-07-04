@@ -303,30 +303,23 @@ func TestApiVersionsResponseBinaryEncoding(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	got := enc.Encode()
-	// Encoded layout (33 bytes, big-endian):
+	// Encoded layout (40 bytes, big-endian):
 	// [0:4]   CorrelationID=12345 → 0x00 0x00 0x30 0x39
 	// [4:6]   ErrorCode=0         → 0x00 0x00
-	// [6]     APIArrayLength=4    → 0x04  (compact array: 3 entries + 1)
-	// [7:9]   APIKey=18 (ApiVersions) → 0x00 0x12
-	// [9:11]  MinVersion=0        → 0x00 0x00
-	// [11:13] MaxVersion=4        → 0x00 0x04
-	// [13]    TagBuffer           → 0x00
-	// [14:16] APIKey=0 (ApiProduce) → 0x00 0x00
-	// [16:18] MinVersion=0        → 0x00 0x00
-	// [18:20] MaxVersion=11       → 0x00 0x0B
-	// [20]    TagBuffer           → 0x00
-	// [21:23] APIKey=75 (DescribeTopicPartitions) → 0x00 0x4B
-	// [23:25] MinVersion=0        → 0x00 0x00
-	// [25:27] MaxVersion=0        → 0x00 0x00
-	// [27]    TagBuffer           → 0x00
-	// [28:32] ThrottleTime=0      → 0x00 0x00 0x00 0x00
-	// [32]    TagBuffer=0         → 0x00
+	// [6]     APIArrayLength=5    → 0x05  (compact array: 4 entries + 1)
+	// APIKey=18 (ApiVersions): 0x00 0x12, Min=0, Max=4, TagBuffer
+	// APIKey=0  (ApiProduce):  0x00 0x00, Min=0, Max=11, TagBuffer
+	// APIKey=1  (Fetch):       0x00 0x01, Min=0, Max=16, TagBuffer
+	// APIKey=75 (DescribeTopicPartitions): 0x00 0x4B, Min=0, Max=0, TagBuffer
+	// ThrottleTime=0 → 0x00 0x00 0x00 0x00
+	// TagBuffer=0    → 0x00
 	want := []byte{
 		0x00, 0x00, 0x30, 0x39, // CorrelationID
 		0x00, 0x00, // ErrorCode
-		0x04,                                     // APIArrayLength (compact: 3+1)
+		0x05,                                     // APIArrayLength (compact: 4+1)
 		0x00, 0x12, 0x00, 0x00, 0x00, 0x04, 0x00, // ApiVersions entry
 		0x00, 0x00, 0x00, 0x00, 0x00, 0x0B, 0x00, // ApiProduce entry
+		0x00, 0x01, 0x00, 0x00, 0x00, 0x10, 0x00, // Fetch entry
 		0x00, 0x4B, 0x00, 0x00, 0x00, 0x00, 0x00, // DescribeTopicPartitions entry
 		0x00, 0x00, 0x00, 0x00, // ThrottleTime
 		0x00, // TagBuffer

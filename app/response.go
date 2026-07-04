@@ -9,6 +9,7 @@ import (
 )
 
 const APIKeyApiProduce = int16(0)
+const APIKeyFetch = int16(1)
 const APIKeyApiVersions = int16(18)
 const APIKeyDescribeTopicPartitions = int16(75)
 
@@ -251,6 +252,7 @@ func createApiVersionsResponse(req *Request) (*ApiVersionsResponse, error) {
 	apiVersions := []ApiVersion{
 		{APIKey: APIKeyApiVersions, MinVersion: 0, MaxVersion: 4, TagBuffer: 0},
 		{APIKey: APIKeyApiProduce, MinVersion: 0, MaxVersion: 11, TagBuffer: 0},
+		{APIKey: APIKeyFetch, MinVersion: 0, MaxVersion: 16, TagBuffer: 0},
 		{APIKey: APIKeyDescribeTopicPartitions, MinVersion: 0, MaxVersion: 0, TagBuffer: 0},
 	}
 
