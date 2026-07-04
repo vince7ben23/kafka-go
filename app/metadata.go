@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"sort"
 )
 
 var kafkaLogBaseDir = "/tmp/kraft-combined-logs"
@@ -24,6 +25,10 @@ type TopicMetadata struct {
 type PartitionMetadata struct {
 	PartitionID int32
 	TopicID     [16]byte
+	Replicas    []int32
+	ISR         []int32
+	Leader      int32
+	LeaderEpoch int32
 }
 
 type ClusterMetadata struct {
@@ -56,6 +61,24 @@ func (m *ClusterMetadata) validateTopicPartition(topicName string, partitionID i
 		}
 	}
 	return false
+}
+
+// partitionsForTopic returns every partition belonging to topicID, sorted by
+// PartitionID ascending (the order DescribeTopicPartitions responses expect).
+func (m *ClusterMetadata) partitionsForTopic(topicID [16]byte) []PartitionMetadata {
+	if m == nil {
+		return nil
+	}
+	var parts []PartitionMetadata
+	for _, p := range m.Partitions {
+		if p.TopicID == topicID {
+			parts = append(parts, p)
+		}
+	}
+	sort.Slice(parts, func(i, j int) bool {
+		return parts[i].PartitionID < parts[j].PartitionID
+	})
+	return parts
 }
 
 func readClusterMetadata(path string) (*ClusterMetadata, error) {
@@ -239,6 +262,57 @@ func parsePartitionRecord(r *bytes.Reader, meta *ClusterMetadata) error {
 	if _, err := io.ReadFull(r, topicID[:]); err != nil {
 		return fmt.Errorf("PARTITION_RECORD topic_id: %w", err)
 	}
-	meta.Partitions = append(meta.Partitions, PartitionMetadata{PartitionID: partitionID, TopicID: topicID})
+
+	replicas, err := readCompactInt32Array(r)
+	if err != nil {
+		return fmt.Errorf("PARTITION_RECORD replicas: %w", err)
+	}
+	isr, err := readCompactInt32Array(r)
+	if err != nil {
+		return fmt.Errorf("PARTITION_RECORD isr: %w", err)
+	}
+	// removing_replicas and adding_replicas are not echoed back; skip them.
+	if _, err := readCompactInt32Array(r); err != nil {
+		return fmt.Errorf("PARTITION_RECORD removing_replicas: %w", err)
+	}
+	if _, err := readCompactInt32Array(r); err != nil {
+		return fmt.Errorf("PARTITION_RECORD adding_replicas: %w", err)
+	}
+	var leader int32
+	if err := binary.Read(r, binary.BigEndian, &leader); err != nil {
+		return fmt.Errorf("PARTITION_RECORD leader: %w", err)
+	}
+	var leaderEpoch int32
+	if err := binary.Read(r, binary.BigEndian, &leaderEpoch); err != nil {
+		return fmt.Errorf("PARTITION_RECORD leader_epoch: %w", err)
+	}
+
+	meta.Partitions = append(meta.Partitions, PartitionMetadata{
+		PartitionID: partitionID,
+		TopicID:     topicID,
+		Replicas:    replicas,
+		ISR:         isr,
+		Leader:      leader,
+		LeaderEpoch: leaderEpoch,
+	})
 	return nil
+}
+
+// readCompactInt32Array reads a Kafka COMPACT_ARRAY of int32 (uvarint length+1,
+// then that many big-endian int32 values). A zero length encodes a null array.
+func readCompactInt32Array(r *bytes.Reader) ([]int32, error) {
+	n, err := binary.ReadUvarint(r)
+	if err != nil {
+		return nil, fmt.Errorf("read compact int32 array length: %w", err)
+	}
+	if n == 0 {
+		return nil, nil
+	}
+	out := make([]int32, n-1)
+	for i := range out {
+		if err := binary.Read(r, binary.BigEndian, &out[i]); err != nil {
+			return nil, fmt.Errorf("read compact int32 array element %d: %w", i, err)
+		}
+	}
+	return out, nil
 }

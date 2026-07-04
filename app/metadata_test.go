@@ -94,8 +94,26 @@ func buildPartitionRecord(partitionID int32, topicID [16]byte) []byte {
 	val.WriteByte(0) // Version
 	mustBinaryWrite(&val, binary.BigEndian, partitionID)
 	val.Write(topicID[:])
-	// Remaining fields omitted; parsePartitionRecord stops after topicID
+	writeTestCompactInt32Array(&val, []int32{1})      // replicas
+	writeTestCompactInt32Array(&val, []int32{1})      // isr
+	writeTestCompactInt32Array(&val, nil)             // removing_replicas
+	writeTestCompactInt32Array(&val, nil)             // adding_replicas
+	mustBinaryWrite(&val, binary.BigEndian, int32(1)) // leader
+	mustBinaryWrite(&val, binary.BigEndian, int32(0)) // leader_epoch
+	// Remaining fields (partition_epoch, directories, tag_buffer) are not read
+	// by parsePartitionRecord, so they are omitted here.
 	return encodeRecord(val.Bytes())
+}
+
+// writeTestCompactInt32Array encodes a COMPACT_ARRAY of int32: uvarint(len+1)
+// followed by each element as a big-endian int32 (nil encodes an empty array).
+func writeTestCompactInt32Array(buf *bytes.Buffer, vs []int32) {
+	tmp := make([]byte, binary.MaxVarintLen64)
+	n := binary.PutUvarint(tmp, uint64(len(vs)+1))
+	buf.Write(tmp[:n])
+	for _, v := range vs {
+		mustBinaryWrite(buf, binary.BigEndian, v)
+	}
 }
 
 func TestParseRecordBatches(t *testing.T) {

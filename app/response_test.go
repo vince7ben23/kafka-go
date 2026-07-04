@@ -113,6 +113,51 @@ func TestNewResponseDescribeTopicPartitions(t *testing.T) {
 	}
 }
 
+func TestNewResponseDescribeTopicPartitionsKnownTopic(t *testing.T) {
+	var topicID [16]byte
+	topicID[15] = 0x09
+	meta := &ClusterMetadata{
+		Topics: []TopicMetadata{{Name: "known", TopicID: topicID}},
+		Partitions: []PartitionMetadata{
+			// Deliberately out of order to exercise the sort.
+			{PartitionID: 1, TopicID: topicID, Replicas: []int32{2}, ISR: []int32{2}, Leader: 2, LeaderEpoch: 4},
+			{PartitionID: 0, TopicID: topicID, Replicas: []int32{1}, ISR: []int32{1}, Leader: 1, LeaderEpoch: 3},
+		},
+	}
+	body := buildDescribeTopicPartitionsBody("known")
+	req := &Request{RequestAPIKey: APIKeyDescribeTopicPartitions, RequestAPIVersion: 0, CorrelationID: 11, Body: body}
+	resp, err := NewResponse(req, meta)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	dr := resp.(*DescribeTopicPartitionsResponse)
+	if len(dr.Topics) != 1 {
+		t.Fatalf("Topics len: got %d, want 1", len(dr.Topics))
+	}
+	topic := dr.Topics[0]
+	if topic.ErrorCode != 0 {
+		t.Errorf("ErrorCode: got %d, want 0", topic.ErrorCode)
+	}
+	if topic.TopicID != topicID {
+		t.Errorf("TopicID mismatch: got %v", topic.TopicID)
+	}
+	if len(topic.Partitions) != 2 {
+		t.Fatalf("Partitions len: got %d, want 2", len(topic.Partitions))
+	}
+	// Must be sorted by partition index ascending.
+	if topic.Partitions[0].PartitionIndex != 0 || topic.Partitions[1].PartitionIndex != 1 {
+		t.Errorf("partitions not sorted by index: got %d, %d",
+			topic.Partitions[0].PartitionIndex, topic.Partitions[1].PartitionIndex)
+	}
+	if topic.Partitions[0].LeaderID != 1 || topic.Partitions[0].LeaderEpoch != 3 {
+		t.Errorf("partition 0 leader fields: got leader=%d epoch=%d, want 1/3",
+			topic.Partitions[0].LeaderID, topic.Partitions[0].LeaderEpoch)
+	}
+	if len(topic.Partitions[0].ReplicaNodes) != 1 || topic.Partitions[0].ReplicaNodes[0] != 1 {
+		t.Errorf("partition 0 replicas: got %v, want [1]", topic.Partitions[0].ReplicaNodes)
+	}
+}
+
 func TestDescribeTopicPartitionsResponseBinaryEncoding(t *testing.T) {
 	dr := &DescribeTopicPartitionsResponse{
 		HeaderResponse: HeaderResponse{CorrelationID: 7},

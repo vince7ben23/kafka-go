@@ -144,6 +144,15 @@ func encodePartitionRecord(partitionID int32, topicID [16]byte) []byte {
 	val.WriteByte(0) // Version
 	mustWrite(&val, partitionID)
 	val.Write(topicID[:])
+	// Replica/ISR/leader fields read by parsePartitionRecord (app/metadata.go).
+	writeCompactInt32Array(&val, []int32{1}) // replicas
+	writeCompactInt32Array(&val, []int32{1}) // isr
+	writeCompactInt32Array(&val, nil)        // removing_replicas
+	writeCompactInt32Array(&val, nil)        // adding_replicas
+	mustWrite(&val, int32(1))                // leader
+	mustWrite(&val, int32(0))                // leader_epoch
+	mustWrite(&val, int32(0))                // partition_epoch
+	val.WriteByte(0)                         // TagBuffer
 	return encodeRecord(val.Bytes())
 }
 
@@ -164,4 +173,15 @@ func writeCompactString(w *bytes.Buffer, s string) {
 	n := binary.PutUvarint(tmp, uint64(len(s)+1))
 	w.Write(tmp[:n])
 	w.WriteString(s)
+}
+
+// writeCompactInt32Array encodes a COMPACT_ARRAY of int32: uvarint(len+1)
+// followed by each element as a big-endian int32 (nil encodes an empty array).
+func writeCompactInt32Array(w *bytes.Buffer, vs []int32) {
+	tmp := make([]byte, binary.MaxVarintLen64)
+	n := binary.PutUvarint(tmp, uint64(len(vs)+1))
+	w.Write(tmp[:n])
+	for _, v := range vs {
+		mustWrite(w, v)
+	}
 }

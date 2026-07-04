@@ -82,12 +82,24 @@ type ProduceResponse struct {
 	TagBuffer       int8
 }
 
+// DescribeTopicPartitionsPartitionResponse holds per-partition metadata echoed
+// back to the client.
+type DescribeTopicPartitionsPartitionResponse struct {
+	ErrorCode      int16
+	PartitionIndex int32
+	LeaderID       int32
+	LeaderEpoch    int32
+	ReplicaNodes   []int32
+	IsrNodes       []int32
+}
+
 // DescribeTopicPartitionsTopicResponse holds per-topic metadata echoed back to the client.
 type DescribeTopicPartitionsTopicResponse struct {
 	ErrorCode  int16
 	Name       string
 	TopicID    [16]byte // all zeros for an unknown topic
 	IsInternal bool
+	Partitions []DescribeTopicPartitionsPartitionResponse
 }
 
 // DescribeTopicPartitionsResponse encodes a DescribeTopicPartitions API v0 response
@@ -119,7 +131,20 @@ func (r *DescribeTopicPartitionsResponse) Encode() []byte {
 		} else {
 			buf.WriteByte(0x00)
 		}
-		writeCompactArrayLen(buf, 0)                      // partitions: empty COMPACT_ARRAY
+		// partitions: COMPACT_ARRAY
+		writeCompactArrayLen(buf, len(topic.Partitions))
+		for _, part := range topic.Partitions {
+			_ = binary.Write(buf, binary.BigEndian, part.ErrorCode)
+			_ = binary.Write(buf, binary.BigEndian, part.PartitionIndex)
+			_ = binary.Write(buf, binary.BigEndian, part.LeaderID)
+			_ = binary.Write(buf, binary.BigEndian, part.LeaderEpoch)
+			writeCompactInt32Array(buf, part.ReplicaNodes) // replica_nodes
+			writeCompactInt32Array(buf, part.IsrNodes)     // isr_nodes
+			writeCompactArrayLen(buf, 0)                   // eligible_leader_replicas
+			writeCompactArrayLen(buf, 0)                   // last_known_elr
+			writeCompactArrayLen(buf, 0)                   // offline_replicas
+			buf.WriteByte(0x00)                            // partition tag_buffer
+		}
 		_ = binary.Write(buf, binary.BigEndian, int32(0)) // topic_authorized_operations
 		buf.WriteByte(0x00)                               // topic tag_buffer
 	}
@@ -140,6 +165,15 @@ func writeUvarint(buf *bytes.Buffer, v uint64) {
 // encoded as the actual element count + 1 (0 = null array).
 func writeCompactArrayLen(buf *bytes.Buffer, n int) {
 	writeUvarint(buf, uint64(n+1))
+}
+
+// writeCompactInt32Array writes a COMPACT_ARRAY of int32: the length prefix
+// followed by each element as a big-endian int32.
+func writeCompactInt32Array(buf *bytes.Buffer, vs []int32) {
+	writeCompactArrayLen(buf, len(vs))
+	for _, v := range vs {
+		_ = binary.Write(buf, binary.BigEndian, v)
+	}
 }
 
 func writePartitionLog(baseDir, topicName string, partitionIdx int32, records []byte) error {
@@ -277,11 +311,20 @@ func createDescribeTopicPartitionsResponse(req *Request, meta *ClusterMetadata) 
 	for _, name := range dr.TopicNames {
 		topicResp := DescribeTopicPartitionsTopicResponse{Name: name}
 		// Resolve the topic through the shared cluster metadata. A known topic
-		// echoes back its real UUID with error code 0; an unknown topic (or no
-		// metadata at all) yields error code 3 with a zero UUID.
-		// Note: partition listing for known topics is a later stage.
+		// echoes back its real UUID with error code 0 and its partitions (sorted
+		// by index); an unknown topic (or no metadata at all) yields error code 3
+		// with a zero UUID and no partitions.
 		if topicID, ok := meta.findTopicID(name); ok {
 			topicResp.TopicID = topicID
+			for _, p := range meta.partitionsForTopic(topicID) {
+				topicResp.Partitions = append(topicResp.Partitions, DescribeTopicPartitionsPartitionResponse{
+					PartitionIndex: p.PartitionID,
+					LeaderID:       p.Leader,
+					LeaderEpoch:    p.LeaderEpoch,
+					ReplicaNodes:   p.Replicas,
+					IsrNodes:       p.ISR,
+				})
+			}
 		} else {
 			topicResp.ErrorCode = 3
 		}
