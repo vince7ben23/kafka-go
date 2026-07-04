@@ -42,11 +42,20 @@ All fixtures use the topic name `test-topic`. The `valid` fixture references
 Each file is a single `RecordBatch`:
 
 ```
-BaseOffset(8) BatchLength(4)
-  PartitionLeaderEpoch(4) Magic(1)=2 CRC(4)=0 Attributes(2)
-  LastOffsetDelta(4) BaseTimestamp(8) MaxTimestamp(8)
-  ProducerID(8)=-1 ProducerEpoch(2)=-1 BaseSequence(4)=-1
-  RecordCount(4) Records...
+BaseOffset(8) 
+BatchLength(4)
+PartitionLeaderEpoch(4) 
+Magic(1)=2 
+CRC(4)=0 
+Attributes(2)
+LastOffsetDelta(4) 
+BaseTimestamp(8) 
+MaxTimestamp(8)
+ProducerID(8)=-1 
+ProducerEpoch(2)=-1 
+BaseSequence(4)=-1
+RecordCount(4) 
+Records...
 ```
 
 Each Record has signed-varint framing (length, attributes, timestamp/offset
@@ -61,9 +70,7 @@ This mirrors the encoders in `app/metadata_test.go`; the decoders live in
 `app/metadata.go` (`parseRecordBatches`, `parseTopicRecord`,
 `parsePartitionRecord`).
 
-> **Note:** the broker's `parsePartitionRecord` reads a partition's
-> `replicas`, `isr`, `removing`/`adding` replicas, `leader`, and `leader_epoch`
-> after the topic UUID (needed to list partitions in `DescribeTopicPartitions`).
-> A `PARTITION_RECORD` fixture that stops right after the topic UUID will make
-> `readClusterMetadata` fail with `EOF`. Keep `encodePartitionRecord` in sync
-> with `parsePartitionRecord` when the partition schema changes.
+## <span style="color:red">**Note:**</span>
+
+- The broker's `parsePartitionRecord` reads a partition's `replicas`, `isr`, `removing`/`adding` replicas, `leader`, and `leader_epoch` after the topic UUID (needed to list partitions in `DescribeTopicPartitions`).
+- A `PARTITION_RECORD` fixture that stops right after the topic UUID will make `readClusterMetadata` fail with `EOF`. Keep `encodePartitionRecord` in sync with `parsePartitionRecord` when the partition schema changes.
