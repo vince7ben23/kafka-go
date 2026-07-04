@@ -30,18 +30,17 @@ func (r *HeaderResponse) Encode() []byte {
 
 type ApiVersionsResponse struct {
 	HeaderResponse
-	ErrorCode      int16
-	APIArrayLength int8
-	APIVersions    []ApiVersion
-	ThrottleTime   int32
-	TagBuffer      int8
+	ErrorCode    int16
+	APIVersions  []ApiVersion
+	ThrottleTime int32
+	TagBuffer    int8
 }
 
 func (r *ApiVersionsResponse) Encode() []byte {
 	buf := new(bytes.Buffer)
 	_ = binary.Write(buf, binary.BigEndian, r.CorrelationID)
 	_ = binary.Write(buf, binary.BigEndian, r.ErrorCode)
-	_ = binary.Write(buf, binary.BigEndian, r.APIArrayLength)
+	writeCompactArrayLen(buf, len(r.APIVersions))
 	for _, v := range r.APIVersions {
 		_ = binary.Write(buf, binary.BigEndian, v)
 	}
@@ -110,7 +109,7 @@ func (r *DescribeTopicPartitionsResponse) Encode() []byte {
 	_ = binary.Write(buf, binary.BigEndian, r.ThrottleTimeMs)
 
 	// topics: COMPACT_ARRAY (count+1)
-	writeUvarint(buf, uint64(len(r.Topics)+1))
+	writeCompactArrayLen(buf, len(r.Topics))
 	for _, topic := range r.Topics {
 		_ = binary.Write(buf, binary.BigEndian, topic.ErrorCode)
 		writeCompactString(buf, topic.Name)
@@ -120,7 +119,7 @@ func (r *DescribeTopicPartitionsResponse) Encode() []byte {
 		} else {
 			buf.WriteByte(0x00)
 		}
-		buf.WriteByte(0x01)                               // partitions: empty COMPACT_ARRAY (count+1)
+		writeCompactArrayLen(buf, 0)                      // partitions: empty COMPACT_ARRAY
 		_ = binary.Write(buf, binary.BigEndian, int32(0)) // topic_authorized_operations
 		buf.WriteByte(0x00)                               // topic tag_buffer
 	}
@@ -135,6 +134,12 @@ func writeUvarint(buf *bytes.Buffer, v uint64) {
 	b := make([]byte, binary.MaxVarintLen64)
 	n := binary.PutUvarint(b, v)
 	buf.Write(b[:n])
+}
+
+// writeCompactArrayLen writes a Kafka flexible-version COMPACT_ARRAY length,
+// encoded as the actual element count + 1 (0 = null array).
+func writeCompactArrayLen(buf *bytes.Buffer, n int) {
+	writeUvarint(buf, uint64(n+1))
 }
 
 func writePartitionLog(baseDir, topicName string, partitionIdx int32, records []byte) error {
@@ -167,20 +172,20 @@ func (r *ProduceResponse) Encode() []byte {
 	_ = binary.Write(buf, binary.BigEndian, r.HeaderTagBuffer)
 
 	// responses: COMPACT_ARRAY (count+1)
-	writeUvarint(buf, uint64(len(r.Topics)+1))
+	writeCompactArrayLen(buf, len(r.Topics))
 	for _, topic := range r.Topics {
 		writeCompactString(buf, topic.Name)
 
 		// partition_responses: COMPACT_ARRAY (count+1)
-		writeUvarint(buf, uint64(len(topic.Partitions)+1))
+		writeCompactArrayLen(buf, len(topic.Partitions))
 		for _, part := range topic.Partitions {
 			_ = binary.Write(buf, binary.BigEndian, part.Index)
 			_ = binary.Write(buf, binary.BigEndian, part.ErrorCode)
 			_ = binary.Write(buf, binary.BigEndian, part.BaseOffset)
 			_ = binary.Write(buf, binary.BigEndian, part.LogAppendTime)
 			_ = binary.Write(buf, binary.BigEndian, part.LogStartOffset)
-			buf.WriteByte(0x01) // record_errors: empty COMPACT_ARRAY
-			buf.WriteByte(0x00) // error_message: null COMPACT_NULLABLE_STRING
+			writeCompactArrayLen(buf, 0) // record_errors: empty COMPACT_ARRAY
+			buf.WriteByte(0x00)          // error_message: null COMPACT_NULLABLE_STRING
 			_ = binary.Write(buf, binary.BigEndian, part.TagBuffer)
 		}
 		_ = binary.Write(buf, binary.BigEndian, topic.TagBuffer)
@@ -209,30 +214,17 @@ func createApiVersionsResponse(req *Request) (*ApiVersionsResponse, error) {
 	if req.RequestAPIVersion < 0 || req.RequestAPIVersion > 4 {
 		errorCode = 35
 	}
-	// Kafka compact array: length field = actual count + 1 (flexible version encoding)
 	apiVersions := []ApiVersion{
 		{APIKey: APIKeyApiVersions, MinVersion: 0, MaxVersion: 4, TagBuffer: 0},
 		{APIKey: APIKeyApiProduce, MinVersion: 0, MaxVersion: 11, TagBuffer: 0},
 		{APIKey: APIKeyDescribeTopicPartitions, MinVersion: 0, MaxVersion: 0, TagBuffer: 0},
 	}
 
-	apiArrayLength, err := toCompactArrayLen(len(apiVersions))
-	if err != nil {
-		return nil, err
-	}
 	return &ApiVersionsResponse{
 		HeaderResponse: HeaderResponse{CorrelationID: req.CorrelationID},
 		ErrorCode:      errorCode,
-		APIArrayLength: apiArrayLength,
 		APIVersions:    apiVersions,
 	}, nil
-}
-
-func toCompactArrayLen(n int) (int8, error) {
-	if n+1 > 127 {
-		return 0, fmt.Errorf("toCompactArrayLen: array too large: %d", n)
-	}
-	return int8(n + 1), nil
 }
 
 func buildPartitionResponse(meta *ClusterMetadata, topicName string, part ProducePartitionData) ProducePartitionResponse {

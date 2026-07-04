@@ -39,9 +39,10 @@ func TestHandleRequest(t *testing.T) {
 			var resp ApiVersionsResponse
 			mustBinaryRead(t, reader, binary.BigEndian, &resp.CorrelationID)
 			mustBinaryRead(t, reader, binary.BigEndian, &resp.ErrorCode)
-			mustBinaryRead(t, reader, binary.BigEndian, &resp.APIArrayLength)
 			// Kafka compact array: length field = actual count + 1 (flexible version encoding)
-			resp.APIVersions = make([]ApiVersion, int(resp.APIArrayLength)-1)
+			var apiArrayLength int8
+			mustBinaryRead(t, reader, binary.BigEndian, &apiArrayLength)
+			resp.APIVersions = make([]ApiVersion, int(apiArrayLength)-1)
 			for i := range resp.APIVersions {
 				mustBinaryRead(t, reader, binary.BigEndian, &resp.APIVersions[i])
 			}
