@@ -27,9 +27,10 @@ codecrafters submit
 The broker logic is split across five files under `app/`:
 
 - **`app/main.go`** — `Server` struct, `NewServer()`, `Run()` accept loop, `handleRequest()` per-connection request loop, `writeResponse()`
-- **`app/request.go`** — `Request` struct, `parseRequest()` binary decoder; `ProduceRequest` types, `parseProduceRequest()`, `readCompactString()`, `readCompactBytes()`
-- **`app/response.go`** — `Encoder` interface, `HeaderResponse`, `ApiVersionsResponse`, `ProduceResponse` types, `NewResponse()` factory, `createApiVersionsResponse()`, `createApiProduceResponse()`
-- **`app/metadata.go`** — `ClusterMetadata`, `TopicMetadata`, `PartitionMetadata` types; `readClusterMetadata()` parses the KRaft `__cluster_metadata-0` log segment; `validateTopicPartition()` checks existence
+- **`app/request.go`** — `Request` struct, `parseRequest()` binary decoder; `ProduceRequest`/`ProduceTopicData`/`ProducePartitionData` types, `parseProduceRequest()`, `readCompactString()`, `readCompactBytes()`
+- **`app/response.go`** — `Encoder` interface, `MessageSize` type, `HeaderResponse`/`ApiVersionsResponse`/`ProduceResponse`/`ProduceTopicResponse`/`ProducePartitionResponse` types; `NewResponse()` factory, `createApiVersionsResponse()`, `createApiProduceResponse()`, `buildPartitionResponse()`; helpers `writeUvarint()`, `writeCompactString()`, `writePartitionLog()`, `toCompactArrayLen()`
+- **`app/metadata.go`** — `ClusterMetadata`, `TopicMetadata`, `PartitionMetadata` types; `kafkaLogBaseDir` and `clusterMetadataLogPath` constants; `readClusterMetadata()` parses the KRaft `__cluster_metadata-0` log segment; `validateTopicPartition()` checks topic+partition existence; `parseRecordBatches()`, `readRecordValue()`, `parseMetadataRecord()`, `parseTopicRecord()`, `parsePartitionRecord()` for decoding the log format
+- **`app/testhelpers_test.go`** — shared test utilities: `mustBinaryWrite()`, `mustBinaryRead()`, `writeRequestHeader()`
 - **`app/*_test.go`** — unit and integration tests, one file per source file
 
 **Module**: `github.com/codecrafters-io/kafka-starter-go` (Go 1.26, no external dependencies)  
@@ -65,23 +66,53 @@ Response format:
 
 | API Key | Name        | Versions | Notes                                                       |
 |---------|-------------|----------|-------------------------------------------------------------|
-| 18      | ApiVersions | 0–4      | Error code 35 (UNSUPPORTED_VERSION) if version outside 0–4 |
-| 0       | Produce     | 11       | Validates topic/partition via KRaft metadata log; error code 3 (UNKNOWN_TOPIC_OR_PARTITION) for invalid, 0 for valid |
+| 18      | ApiVersions | 0–4      | Error code 35 (UNSUPPORTED_VERSION) if version outside 0–4; response advertises API 18 (v0–4) and API 0 (v0–11) |
+| 0       | Produce     | 11       | Validates topic/partition via KRaft metadata log; error code 3 (UNKNOWN_TOPIC_OR_PARTITION) for unknown, error code 5 (LEADER_NOT_AVAILABLE) on storage write failure, 0 for success; accepted RecordBatches are appended to the topic-partition log file |
 | *       | (others)    | —        | Returns `HeaderResponse` with only CorrelationID            |
 
-### KRaft Cluster Metadata Log
+### Log Files on Disk
 
-The Produce handler reads the KRaft metadata log at:
 ```
-/tmp/kraft-combined-logs/__cluster_metadata-0/00000000000000000000.log
+/tmp/kraft-combined-logs/
+├── __cluster_metadata-0/
+│   └── 00000000000000000000.log   ← cluster metadata log
+└── <topic>-<partition>/
+    └── 00000000000000000000.log   ← topic data log
 ```
-It parses RecordBatches, extracting `TOPIC_RECORD` (type 2) and `PARTITION_RECORD` (type 3) entries to build a `ClusterMetadata` in memory. If the file is absent, all partitions are treated as invalid.
+
+#### `__cluster_metadata-0/00000000000000000000.log`
+
+Records the current state of the cluster: which topics exist and which partitions each topic has. The Produce handler reads this file at startup to build a `ClusterMetadata` in memory, extracting `TOPIC_RECORD` (type 2) and `PARTITION_RECORD` (type 3) entries. If the file is absent, all topic/partition combinations are treated as invalid (error code 3).
+
+#### `<topic>-<partition>/00000000000000000000.log` (e.g. `test-topic-0/`)
+
+The actual message data for one topic-partition. The Produce handler appends RecordBatches here after the topic/partition is confirmed valid against cluster metadata.
+
+### Produce Response Wire Format
+
+`ProduceResponse.Encode()` uses **response header v1** (correlation_id + tag_buffer) — one extra tag_buffer byte after the correlation ID that is absent in older header versions. Each partition entry includes:
+- `record_errors`: empty COMPACT_ARRAY (`0x01`)
+- `error_message`: null COMPACT_NULLABLE_STRING (`0x00`)
+
+These two fields are part of the Produce v11 flexible-version schema and must be present even on success.
+
+### KRaft Metadata Log Format
+
+Each entry in `__cluster_metadata-0/00000000000000000000.log` is a `RecordBatch`. The record value bytes begin with:
+- `FrameVersion` (int8)
+- `RecordType` (int8): `2` = `TOPIC_RECORD`, `3` = `PARTITION_RECORD`
+- `Version` (int8)
+
+`TOPIC_RECORD` carries a COMPACT_STRING topic name + 16-byte UUID.  
+`PARTITION_RECORD` carries a 4-byte partition ID + 16-byte topic UUID.  
+`validateTopicPartition()` resolves topic name → UUID → partition ID to confirm the requested combination exists.
 
 ### Key Design Patterns
 
 - **`Encoder` interface** — strategy pattern; `HeaderResponse`, `ApiVersionsResponse`, and `ProduceResponse` each implement `Encode() []byte`
 - **`NewResponse()` factory** — switches on `RequestAPIKey` to select the correct response type
 - **Keep-alive loop** in `handleRequest()` — reads requests in a loop until EOF, so one TCP connection handles multiple sequential requests
+- **`buildPartitionResponse()`** — centralises the per-partition logic: validate → write log → return response; storage errors are mapped to error code 5 rather than crashing the handler
 
 ## Pre-commit Hooks
 
