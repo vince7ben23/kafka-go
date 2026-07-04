@@ -158,6 +158,23 @@ func TestNewResponseDescribeTopicPartitionsKnownTopic(t *testing.T) {
 	}
 }
 
+func TestNewResponseDescribeTopicPartitionsSortsTopicsByName(t *testing.T) {
+	// Request order is deliberately not alphabetical.
+	body := buildDescribeTopicPartitionsBody("strawberry", "banana")
+	req := &Request{RequestAPIKey: APIKeyDescribeTopicPartitions, RequestAPIVersion: 0, CorrelationID: 3, Body: body}
+	resp, err := NewResponse(req, nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	dr := resp.(*DescribeTopicPartitionsResponse)
+	if len(dr.Topics) != 2 {
+		t.Fatalf("Topics len: got %d, want 2", len(dr.Topics))
+	}
+	if dr.Topics[0].Name != "banana" || dr.Topics[1].Name != "strawberry" {
+		t.Errorf("topics not sorted by name: got %q, %q", dr.Topics[0].Name, dr.Topics[1].Name)
+	}
+}
+
 func TestDescribeTopicPartitionsResponseBinaryEncoding(t *testing.T) {
 	dr := &DescribeTopicPartitionsResponse{
 		HeaderResponse: HeaderResponse{CorrelationID: 7},

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 )
 
 const APIKeyApiProduce = int16(0)
@@ -310,7 +311,11 @@ func createDescribeTopicPartitionsResponse(req *Request, meta *ClusterMetadata) 
 	resp := &DescribeTopicPartitionsResponse{
 		HeaderResponse: HeaderResponse{CorrelationID: req.CorrelationID},
 	}
-	for _, name := range dr.TopicNames {
+	// DescribeTopicPartitions responses list topics sorted by name, regardless
+	// of the order they appeared in the request.
+	names := append([]string(nil), dr.TopicNames...)
+	sort.Strings(names)
+	for _, name := range names {
 		topicResp := DescribeTopicPartitionsTopicResponse{Name: name}
 		// Resolve the topic through the shared cluster metadata. A known topic
 		// echoes back its real UUID with error code 0 and its partitions (sorted
