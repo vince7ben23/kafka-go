@@ -46,16 +46,8 @@ func (m *ClusterMetadata) findTopicID(topicName string) ([16]byte, bool) {
 }
 
 func (m *ClusterMetadata) validateTopicPartition(topicName string, partitionID int32) bool {
-	var topicID [16]byte
-	found := false
-	for _, t := range m.Topics {
-		if t.Name == topicName {
-			topicID = t.TopicID
-			found = true
-			break
-		}
-	}
-	if !found {
+	topicID, ok := m.findTopicID(topicName)
+	if !ok {
 		return false
 	}
 	for _, p := range m.Partitions {
