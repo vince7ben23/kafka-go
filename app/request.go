@@ -36,6 +36,10 @@ type ProduceRequest struct {
 	TopicData       []ProduceTopicData
 }
 
+type DescribeTopicPartitionsRequest struct {
+	TopicNames []string
+}
+
 func parseRequest(conn net.Conn) (*Request, error) {
 	req := &Request{}
 
@@ -166,4 +170,32 @@ func parseProduceRequest(body []byte) (*ProduceRequest, error) {
 	}
 
 	return pr, nil
+}
+
+// parseDescribeTopicPartitionsRequest decodes a DescribeTopicPartitions request v0 body,
+// extracting the requested topic names. Fields after the topics array
+// (response_partition_limit, cursor, request tag_buffer) are not needed for this stage.
+func parseDescribeTopicPartitionsRequest(body []byte) (*DescribeTopicPartitionsRequest, error) {
+	r := bytes.NewReader(body)
+	dr := &DescribeTopicPartitionsRequest{}
+
+	// topics: COMPACT_ARRAY, encoded length = actual count + 1.
+	// 0 = null array, 1 = empty array; neither carries any topic entry.
+	topicCount, err := binary.ReadUvarint(r)
+	if err != nil {
+		return nil, fmt.Errorf("describe: topic count: %w", err)
+	}
+	for i := 0; i < int(topicCount)-1; i++ {
+		name, err := readCompactString(r)
+		if err != nil {
+			return nil, fmt.Errorf("describe: topic name: %w", err)
+		}
+		// TAG_BUFFER for topic
+		if _, err := binary.ReadUvarint(r); err != nil {
+			return nil, fmt.Errorf("describe: topic tag_buffer: %w", err)
+		}
+		dr.TopicNames = append(dr.TopicNames, name)
+	}
+
+	return dr, nil
 }

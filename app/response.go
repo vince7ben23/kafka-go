@@ -83,6 +83,54 @@ type ProduceResponse struct {
 	TagBuffer       int8
 }
 
+// DescribeTopicPartitionsTopicResponse holds per-topic metadata echoed back to the client.
+type DescribeTopicPartitionsTopicResponse struct {
+	ErrorCode  int16
+	Name       string
+	TopicID    [16]byte // all zeros for an unknown topic
+	IsInternal bool
+}
+
+// DescribeTopicPartitionsResponse encodes a DescribeTopicPartitions API v0 response
+// (flexible version, response header v1).
+type DescribeTopicPartitionsResponse struct {
+	HeaderResponse
+	HeaderTagBuffer int8
+	ThrottleTimeMs  int32
+	Topics          []DescribeTopicPartitionsTopicResponse
+}
+
+func (r *DescribeTopicPartitionsResponse) Encode() []byte {
+	buf := new(bytes.Buffer)
+
+	// Response header v1: correlation_id + tag_buffer
+	_ = binary.Write(buf, binary.BigEndian, r.CorrelationID)
+	_ = binary.Write(buf, binary.BigEndian, r.HeaderTagBuffer)
+
+	_ = binary.Write(buf, binary.BigEndian, r.ThrottleTimeMs)
+
+	// topics: COMPACT_ARRAY (count+1)
+	writeUvarint(buf, uint64(len(r.Topics)+1))
+	for _, topic := range r.Topics {
+		_ = binary.Write(buf, binary.BigEndian, topic.ErrorCode)
+		writeCompactString(buf, topic.Name)
+		buf.Write(topic.TopicID[:]) // topic_id: 16-byte UUID
+		if topic.IsInternal {       // is_internal: BOOLEAN
+			buf.WriteByte(0x01)
+		} else {
+			buf.WriteByte(0x00)
+		}
+		buf.WriteByte(0x01)                               // partitions: empty COMPACT_ARRAY (count+1)
+		_ = binary.Write(buf, binary.BigEndian, int32(0)) // topic_authorized_operations
+		buf.WriteByte(0x00)                               // topic tag_buffer
+	}
+
+	buf.WriteByte(0xff) // next_cursor: null (NULLABLE, -1)
+	buf.WriteByte(0x00) // top-level tag_buffer
+
+	return buf.Bytes()
+}
+
 func writeUvarint(buf *bytes.Buffer, v uint64) {
 	b := make([]byte, binary.MaxVarintLen64)
 	n := binary.PutUvarint(b, v)
@@ -149,6 +197,8 @@ func NewResponse(req *Request) (Encoder, error) {
 		return createApiVersionsResponse(req)
 	case APIKeyApiProduce:
 		return createApiProduceResponse(req)
+	case APIKeyDescribeTopicPartitions:
+		return createDescribeTopicPartitionsResponse(req)
 	default:
 		return &HeaderResponse{CorrelationID: req.CorrelationID}, nil
 	}
@@ -220,6 +270,26 @@ func createApiProduceResponse(req *Request) (*ProduceResponse, error) {
 			topicResp.Partitions = append(topicResp.Partitions, buildPartitionResponse(meta, topic.Name, part))
 		}
 		resp.Topics = append(resp.Topics, topicResp)
+	}
+
+	return resp, nil
+}
+
+func createDescribeTopicPartitionsResponse(req *Request) (*DescribeTopicPartitionsResponse, error) {
+	dr, err := parseDescribeTopicPartitionsRequest(req.Body)
+	if err != nil {
+		return nil, fmt.Errorf("createDescribeTopicPartitionsResponse: %w", err)
+	}
+
+	resp := &DescribeTopicPartitionsResponse{
+		HeaderResponse: HeaderResponse{CorrelationID: req.CorrelationID},
+	}
+	for _, name := range dr.TopicNames {
+		// Unknown topic: error code 3, zero UUID, not internal, no partitions.
+		resp.Topics = append(resp.Topics, DescribeTopicPartitionsTopicResponse{
+			ErrorCode: 3,
+			Name:      name,
+		})
 	}
 
 	return resp, nil

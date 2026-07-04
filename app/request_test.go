@@ -93,6 +93,71 @@ func TestParseProduceRequest(t *testing.T) {
 	})
 }
 
+// buildDescribeTopicPartitionsBody builds a DescribeTopicPartitions v0 request body
+// carrying the given topic names, for use in unit tests only.
+func buildDescribeTopicPartitionsBody(topicNames ...string) []byte {
+	putUvarint := func(v uint64) []byte {
+		tmp := make([]byte, binary.MaxVarintLen64)
+		return tmp[:binary.PutUvarint(tmp, v)]
+	}
+
+	var body []byte
+	body = append(body, putUvarint(uint64(len(topicNames)+1))...) // topics count+1
+	for _, name := range topicNames {
+		body = append(body, putUvarint(uint64(len(name)+1))...)
+		body = append(body, []byte(name)...)
+		body = append(body, 0x00) // topic TAG_BUFFER
+	}
+	body = append(body, 0x00, 0x00, 0x00, 0x64) // response_partition_limit = 100
+	body = append(body, 0xFF)                   // cursor: null
+	body = append(body, 0x00)                   // request TAG_BUFFER
+	return body
+}
+
+func TestParseDescribeTopicPartitionsRequest(t *testing.T) {
+	t.Run("single topic", func(t *testing.T) {
+		body := buildDescribeTopicPartitionsBody("unknown-topic")
+		dr, err := parseDescribeTopicPartitionsRequest(body)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if len(dr.TopicNames) != 1 {
+			t.Fatalf("TopicNames len: got %d, want 1", len(dr.TopicNames))
+		}
+		if dr.TopicNames[0] != "unknown-topic" {
+			t.Errorf("topic name: got %q, want %q", dr.TopicNames[0], "unknown-topic")
+		}
+	})
+
+	t.Run("multiple topics", func(t *testing.T) {
+		body := buildDescribeTopicPartitionsBody("foo", "bar")
+		dr, err := parseDescribeTopicPartitionsRequest(body)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		want := []string{"foo", "bar"}
+		if len(dr.TopicNames) != len(want) {
+			t.Fatalf("TopicNames len: got %d, want %d", len(dr.TopicNames), len(want))
+		}
+		for i, w := range want {
+			if dr.TopicNames[i] != w {
+				t.Errorf("TopicNames[%d]: got %q, want %q", i, dr.TopicNames[i], w)
+			}
+		}
+	})
+
+	t.Run("empty topics array", func(t *testing.T) {
+		body := buildDescribeTopicPartitionsBody()
+		dr, err := parseDescribeTopicPartitionsRequest(body)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if len(dr.TopicNames) != 0 {
+			t.Errorf("TopicNames len: got %d, want 0", len(dr.TopicNames))
+		}
+	})
+}
+
 func TestParseRequest(t *testing.T) {
 	tests := []struct {
 		name          string

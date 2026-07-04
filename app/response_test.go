@@ -85,6 +85,78 @@ func TestNewResponseProduce(t *testing.T) {
 	}
 }
 
+func TestNewResponseDescribeTopicPartitions(t *testing.T) {
+	body := buildDescribeTopicPartitionsBody("unknown-topic")
+	req := &Request{RequestAPIKey: APIKeyDescribeTopicPartitions, RequestAPIVersion: 0, CorrelationID: 7, Body: body}
+	resp, err := NewResponse(req)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	dr, ok := resp.(*DescribeTopicPartitionsResponse)
+	if !ok {
+		t.Fatal("expected *DescribeTopicPartitionsResponse")
+	}
+	if dr.CorrelationID != 7 {
+		t.Errorf("CorrelationID: got %d, want 7", dr.CorrelationID)
+	}
+	if len(dr.Topics) != 1 {
+		t.Fatalf("Topics len: got %d, want 1", len(dr.Topics))
+	}
+	if dr.Topics[0].Name != "unknown-topic" {
+		t.Errorf("topic name: got %q, want %q", dr.Topics[0].Name, "unknown-topic")
+	}
+	if dr.Topics[0].ErrorCode != 3 {
+		t.Errorf("ErrorCode: got %d, want 3", dr.Topics[0].ErrorCode)
+	}
+	if dr.Topics[0].TopicID != ([16]byte{}) {
+		t.Errorf("TopicID: got %v, want all zeros", dr.Topics[0].TopicID)
+	}
+}
+
+func TestDescribeTopicPartitionsResponseBinaryEncoding(t *testing.T) {
+	dr := &DescribeTopicPartitionsResponse{
+		HeaderResponse: HeaderResponse{CorrelationID: 7},
+		Topics: []DescribeTopicPartitionsTopicResponse{
+			{ErrorCode: 3, Name: "unknown-topic"},
+		},
+	}
+	got := dr.Encode()
+	// Encoded layout:
+	// [0:4]   CorrelationID=7           → 0x00 0x00 0x00 0x07
+	// [4]     header tag_buffer         → 0x00
+	// [5:9]   throttle_time_ms=0        → 0x00 0x00 0x00 0x00
+	// [9]     topics count+1=2          → 0x02
+	// [10:12] error_code=3              → 0x00 0x03
+	// [12]    topic name len+1=14       → 0x0E
+	// [13:26] "unknown-topic"           → 13 bytes
+	// [26:42] topic_id (zero UUID)      → 0x00 x16
+	// [42]    is_internal=false         → 0x00
+	// [43]    partitions (empty)        → 0x01
+	// [44:48] topic_authorized_ops=0    → 0x00 0x00 0x00 0x00
+	// [48]    topic tag_buffer          → 0x00
+	// [49]    next_cursor (null)        → 0xFF
+	// [50]    top-level tag_buffer      → 0x00
+	want := []byte{
+		0x00, 0x00, 0x00, 0x07, // CorrelationID
+		0x00,                   // header tag_buffer
+		0x00, 0x00, 0x00, 0x00, // throttle_time_ms
+		0x02,       // topics count+1
+		0x00, 0x03, // error_code=3
+		0x0E, 'u', 'n', 'k', 'n', 'o', 'w', 'n', '-', 't', 'o', 'p', 'i', 'c', // topic name
+		0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+		0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // topic_id (zero UUID)
+		0x00,                   // is_internal
+		0x01,                   // partitions: empty COMPACT_ARRAY
+		0x00, 0x00, 0x00, 0x00, // topic_authorized_operations
+		0x00, // topic tag_buffer
+		0xFF, // next_cursor: null
+		0x00, // top-level tag_buffer
+	}
+	if !bytes.Equal(got, want) {
+		t.Errorf("encoding mismatch:\ngot  %#v\nwant %#v", got, want)
+	}
+}
+
 func TestProduceResponseBinaryEncoding(t *testing.T) {
 	pr := &ProduceResponse{
 		HeaderResponse:  HeaderResponse{CorrelationID: 7},
