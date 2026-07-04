@@ -6,12 +6,15 @@
 #
 # Usage:
 #   1. Start the broker:  ./your_program.sh
-#   2. Run this script:   ./test_metadata_validation.sh
+#   2. Run this script:   ./test_script/test_metadata_validation.sh
 #
 # Expected results (bytes highlighted in hexdump):
 #   Case 1  error_code = 0x0000  (NO_ERROR)
 #   Case 2  error_code = 0x0003  (UNKNOWN_TOPIC_OR_PARTITION)
 #   Case 3  error_code = 0x0003  (UNKNOWN_TOPIC_OR_PARTITION)
+
+# Run from the repo root so relative paths (tools/...) resolve.
+cd "$(dirname "$0")/.." || exit 1
 
 LOG_DIR="/tmp/kraft-combined-logs/__cluster_metadata-0"
 ACTIVE_LOG="$LOG_DIR/00000000000000000000.log"

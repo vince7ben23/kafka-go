@@ -6,7 +6,7 @@
 #
 # Usage:
 #   1. Start the broker:  ./your_program.sh
-#   2. Run this script:   ./test_produce_record_to_disk.sh
+#   2. Run this script:   ./test_script/test_produce_record_to_disk.sh
 #
 # Checks:
 #   - MessageSize (bytes 0-3)       is 57 (0x00000039)
@@ -17,6 +17,9 @@
 #   - log_start_offset (bytes 44-51) is 0
 #   - throttle_time_ms (bytes 56-59) is 0
 #   - Record is persisted at /tmp/kraft-combined-logs/test-topic-0/00000000000000000000.log
+
+# Run from the repo root so relative paths (tools/...) resolve.
+cd "$(dirname "$0")/.." || exit 1
 
 META_DIR="/tmp/kraft-combined-logs/__cluster_metadata-0"
 PARTITION_LOG="/tmp/kraft-combined-logs/test-topic-0/00000000000000000000.log"
