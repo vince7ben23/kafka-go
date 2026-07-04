@@ -10,7 +10,7 @@ import (
 func TestNewResponse(t *testing.T) {
 	t.Run("ApiVersions valid version returns ApiVersionsResponse with no error", func(t *testing.T) {
 		req := &Request{RequestAPIKey: APIKeyApiVersions, RequestAPIVersion: 4, CorrelationID: 42}
-		resp, err := NewResponse(req)
+		resp, err := NewResponse(req, nil)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -28,7 +28,7 @@ func TestNewResponse(t *testing.T) {
 
 	t.Run("ApiVersions unsupported version returns error code 35", func(t *testing.T) {
 		req := &Request{RequestAPIKey: APIKeyApiVersions, RequestAPIVersion: 99, CorrelationID: 7}
-		resp, err := NewResponse(req)
+		resp, err := NewResponse(req, nil)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -43,7 +43,7 @@ func TestNewResponse(t *testing.T) {
 
 	t.Run("unknown API key returns base Response", func(t *testing.T) {
 		req := &Request{RequestAPIKey: 99, CorrelationID: 5}
-		resp, err := NewResponse(req)
+		resp, err := NewResponse(req, nil)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
@@ -60,7 +60,7 @@ func TestNewResponse(t *testing.T) {
 func TestNewResponseProduce(t *testing.T) {
 	body := buildMinimalProduceBody("test-topic", []int32{99})
 	req := &Request{RequestAPIKey: APIKeyApiProduce, RequestAPIVersion: 11, CorrelationID: 7, Body: body}
-	resp, err := NewResponse(req)
+	resp, err := NewResponse(req, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -88,7 +88,7 @@ func TestNewResponseProduce(t *testing.T) {
 func TestNewResponseDescribeTopicPartitions(t *testing.T) {
 	body := buildDescribeTopicPartitionsBody("unknown-topic")
 	req := &Request{RequestAPIKey: APIKeyDescribeTopicPartitions, RequestAPIVersion: 0, CorrelationID: 7, Body: body}
-	resp, err := NewResponse(req)
+	resp, err := NewResponse(req, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -253,7 +253,7 @@ func TestWritePartitionLogAppends(t *testing.T) {
 
 func TestApiVersionsResponseBinaryEncoding(t *testing.T) {
 	req := &Request{RequestAPIKey: APIKeyApiVersions, RequestAPIVersion: 4, CorrelationID: 12345}
-	enc, err := NewResponse(req)
+	enc, err := NewResponse(req, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}

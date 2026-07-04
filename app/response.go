@@ -196,14 +196,14 @@ func (r *ProduceResponse) Encode() []byte {
 	return buf.Bytes()
 }
 
-func NewResponse(req *Request) (Encoder, error) {
+func NewResponse(req *Request, meta *ClusterMetadata) (Encoder, error) {
 	switch req.RequestAPIKey {
 	case APIKeyApiVersions:
 		return createApiVersionsResponse(req)
 	case APIKeyApiProduce:
-		return createApiProduceResponse(req)
+		return createApiProduceResponse(req, meta)
 	case APIKeyDescribeTopicPartitions:
-		return createDescribeTopicPartitionsResponse(req)
+		return createDescribeTopicPartitionsResponse(req, meta)
 	default:
 		return &HeaderResponse{CorrelationID: req.CorrelationID}, nil
 	}
@@ -247,13 +247,11 @@ func buildPartitionResponse(meta *ClusterMetadata, topicName string, part Produc
 	}
 }
 
-func createApiProduceResponse(req *Request) (*ProduceResponse, error) {
+func createApiProduceResponse(req *Request, meta *ClusterMetadata) (*ProduceResponse, error) {
 	pr, err := parseProduceRequest(req.Body)
 	if err != nil {
 		return nil, fmt.Errorf("createApiProduceResponse: %w", err)
 	}
-
-	meta, _ := readClusterMetadata(clusterMetadataLogPath)
 
 	resp := &ProduceResponse{HeaderResponse: HeaderResponse{CorrelationID: req.CorrelationID}}
 	for _, topic := range pr.TopicData {
@@ -267,7 +265,7 @@ func createApiProduceResponse(req *Request) (*ProduceResponse, error) {
 	return resp, nil
 }
 
-func createDescribeTopicPartitionsResponse(req *Request) (*DescribeTopicPartitionsResponse, error) {
+func createDescribeTopicPartitionsResponse(req *Request, meta *ClusterMetadata) (*DescribeTopicPartitionsResponse, error) {
 	dr, err := parseDescribeTopicPartitionsRequest(req.Body)
 	if err != nil {
 		return nil, fmt.Errorf("createDescribeTopicPartitionsResponse: %w", err)
@@ -277,11 +275,17 @@ func createDescribeTopicPartitionsResponse(req *Request) (*DescribeTopicPartitio
 		HeaderResponse: HeaderResponse{CorrelationID: req.CorrelationID},
 	}
 	for _, name := range dr.TopicNames {
-		// Unknown topic: error code 3, zero UUID, not internal, no partitions.
-		resp.Topics = append(resp.Topics, DescribeTopicPartitionsTopicResponse{
-			ErrorCode: 3,
-			Name:      name,
-		})
+		topicResp := DescribeTopicPartitionsTopicResponse{Name: name}
+		// Resolve the topic through the shared cluster metadata. A known topic
+		// echoes back its real UUID with error code 0; an unknown topic (or no
+		// metadata at all) yields error code 3 with a zero UUID.
+		// Note: partition listing for known topics is a later stage.
+		if topicID, ok := meta.findTopicID(name); ok {
+			topicResp.TopicID = topicID
+		} else {
+			topicResp.ErrorCode = 3
+		}
+		resp.Topics = append(resp.Topics, topicResp)
 	}
 
 	return resp, nil

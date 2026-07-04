@@ -82,7 +82,9 @@ Response format:
 
 #### `__cluster_metadata-0/00000000000000000000.log`
 
-Records the current state of the cluster: which topics exist and which partitions each topic has. The Produce handler reads this file at startup to build a `ClusterMetadata` in memory, extracting `TOPIC_RECORD` (type 2) and `PARTITION_RECORD` (type 3) entries. If the file is absent, all topic/partition combinations are treated as invalid (error code 3).
+Records the current state of the cluster: which topics exist and which partitions each topic has. The broker reads this file once at startup (in `NewServer()`) to build a `ClusterMetadata` in memory that is cached for the broker's lifetime; the Produce handler consults that in-memory cache rather than re-reading the log per request. It extracts `TOPIC_RECORD` (type 2) and `PARTITION_RECORD` (type 3) entries. If the file is absent, all topic/partition combinations are treated as invalid (error code 3).
+
+> **Known limitation:** the metadata cache is a static snapshot taken at startup and is never refreshed. Topics/partitions created (or removed) in the log *after* the broker starts are invisible, and if the log is missing at startup every topic stays invalid for the broker's lifetime. This is acceptable under the challenge's assumption that metadata is fixed before the broker boots; a real broker would tail the log and update the cache (guarded by a lock, since connection goroutines read it concurrently).
 
 #### `<topic>-<partition>/00000000000000000000.log` (e.g. `test-topic-0/`)
 

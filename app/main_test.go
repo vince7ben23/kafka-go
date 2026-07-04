@@ -23,7 +23,8 @@ func TestHandleRequest(t *testing.T) {
 			client, server := net.Pipe()
 			defer client.Close()
 
-			go handleRequest(server)
+			srv := &Server{}
+			go srv.handleRequest(server)
 
 			writeRequestHeader(client, 14, APIKeyApiVersions, 4, tt.correlationID)
 

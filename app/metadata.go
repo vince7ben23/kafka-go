@@ -31,6 +31,20 @@ type ClusterMetadata struct {
 	Partitions []PartitionMetadata
 }
 
+// findTopicID resolves a topic name to its UUID. It returns ok=false when the
+// metadata is absent (nil receiver) or the topic does not exist.
+func (m *ClusterMetadata) findTopicID(topicName string) ([16]byte, bool) {
+	if m == nil {
+		return [16]byte{}, false
+	}
+	for _, t := range m.Topics {
+		if t.Name == topicName {
+			return t.TopicID, true
+		}
+	}
+	return [16]byte{}, false
+}
+
 func (m *ClusterMetadata) validateTopicPartition(topicName string, partitionID int32) bool {
 	var topicID [16]byte
 	found := false

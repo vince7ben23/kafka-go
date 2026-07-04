@@ -11,6 +11,7 @@ import (
 
 type Server struct {
 	Listener net.Listener
+	Metadata *ClusterMetadata
 }
 
 func NewServer() (*Server, error) {
@@ -18,7 +19,15 @@ func NewServer() (*Server, error) {
 	if err != nil {
 		return nil, fmt.Errorf("NewServer: %w", err)
 	}
-	return &Server{Listener: l}, nil
+	// Load the KRaft cluster metadata once at startup. It is effectively static
+	// for the broker's lifetime, so we cache it rather than re-reading and
+	// re-parsing the log on every request. A missing file leaves Metadata nil,
+	// which the handlers treat as "no topics known".
+	meta, err := readClusterMetadata(clusterMetadataLogPath)
+	if err != nil {
+		log.Printf("NewServer: cluster metadata unavailable: %v", err)
+	}
+	return &Server{Listener: l, Metadata: meta}, nil
 }
 
 func (s *Server) Run() error {
@@ -28,7 +37,7 @@ func (s *Server) Run() error {
 			return fmt.Errorf("Run: accept: %w", err)
 		}
 		log.Printf("Accepted TCP connection from %s\n", conn.RemoteAddr())
-		go handleRequest(conn)
+		go s.handleRequest(conn)
 	}
 }
 
@@ -46,7 +55,7 @@ func writeResponse(conn net.Conn, resp Encoder) error {
 	return nil
 }
 
-func handleRequest(conn net.Conn) {
+func (s *Server) handleRequest(conn net.Conn) {
 	defer conn.Close()
 	for {
 		req, err := parseRequest(conn)
@@ -59,7 +68,7 @@ func handleRequest(conn net.Conn) {
 		}
 		log.Printf("request: %+v\n", req)
 
-		resp, err := NewResponse(req)
+		resp, err := NewResponse(req, s.Metadata)
 		if err != nil {
 			log.Printf("handleRequest: new response: %v", err)
 			_ = writeResponse(conn, &HeaderResponse{CorrelationID: req.CorrelationID})
