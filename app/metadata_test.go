@@ -123,8 +123,8 @@ func TestParseRecordBatches(t *testing.T) {
 
 	meta := &ClusterMetadata{}
 	r := bytes.NewReader(data)
-	if err := parseRecordBatches(r, meta); err != nil {
-		t.Fatalf("parseRecordBatches: %v", err)
+	if err := parseMetadataLog(r, meta); err != nil {
+		t.Fatalf("parseMetadataLog: %v", err)
 	}
 	if len(meta.Topics) != 1 {
 		t.Fatalf("Topics: got %d, want 1", len(meta.Topics))

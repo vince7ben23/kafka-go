@@ -67,7 +67,7 @@ payload, which begins with `FrameVersion` / `RecordType` / `Version`:
   the replica/ISR/leader fields
 
 This mirrors the encoders in `app/metadata_test.go`; the decoders live in
-`app/metadata.go` (`parseRecordBatches`, `parseTopicRecord`,
+`app/metadata.go` (`parseMetadataLog`, `parseTopicRecord`,
 `parsePartitionRecord`).
 
 ## <span style="color:red">**Note:**</span>

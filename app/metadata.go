@@ -88,13 +88,13 @@ func readClusterMetadata(path string) (*ClusterMetadata, error) {
 	}
 	meta := &ClusterMetadata{}
 	r := bytes.NewReader(data)
-	if err := parseRecordBatches(r, meta); err != nil {
+	if err := parseMetadataLog(r, meta); err != nil {
 		return nil, fmt.Errorf("readClusterMetadata: %w", err)
 	}
 	return meta, nil
 }
 
-func parseRecordBatches(r *bytes.Reader, meta *ClusterMetadata) error {
+func parseMetadataLog(r *bytes.Reader, meta *ClusterMetadata) error {
 	for r.Len() > 0 {
 		var baseOffset int64
 		if err := binary.Read(r, binary.BigEndian, &baseOffset); err != nil {
