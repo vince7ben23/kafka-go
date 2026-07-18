@@ -278,7 +278,11 @@ func TestProduceResponseBinaryEncoding(t *testing.T) {
 }
 
 func TestNewResponseFetch(t *testing.T) {
-	req := &Request{RequestAPIKey: APIKeyFetch, RequestAPIVersion: 16, CorrelationID: 7}
+	// A 16-byte topic_id that does not exist in cluster metadata, so the handler
+	// should report it as UNKNOWN_TOPIC_ID (error code 100).
+	topicID := unknownTopicID
+	body := buildFetchBody(topicID, []int32{0})
+	req := &Request{RequestAPIKey: APIKeyFetch, RequestAPIVersion: 16, CorrelationID: 7, Body: body}
 	resp, err := NewResponse(req, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -296,14 +300,29 @@ func TestNewResponseFetch(t *testing.T) {
 	if fResp.ThrottleTimeMs != 0 {
 		t.Errorf("ThrottleTimeMs: got %d, want 0", fResp.ThrottleTimeMs)
 	}
+	if len(fResp.Topics) != 1 {
+		t.Fatalf("Topics len: got %d, want 1", len(fResp.Topics))
+	}
+	if fResp.Topics[0].TopicID != topicID {
+		t.Errorf("TopicID: got %v, want %v", fResp.Topics[0].TopicID, topicID)
+	}
+	if len(fResp.Topics[0].Partitions) != 1 {
+		t.Fatalf("Partitions len: got %d, want 1", len(fResp.Topics[0].Partitions))
+	}
+	if got := fResp.Topics[0].Partitions[0].PartitionIndex; got != 0 {
+		t.Errorf("PartitionIndex: got %d, want 0", got)
+	}
+	if got := fResp.Topics[0].Partitions[0].ErrorCode; got != 100 {
+		t.Errorf("ErrorCode: got %d, want 100 (UNKNOWN_TOPIC_ID)", got)
+	}
 }
 
-func TestFetchResponseBinaryEncoding(t *testing.T) {
+func TestFetchResponseBinaryEncodingEmpty(t *testing.T) {
 	fr := &FetchResponse{
 		HeaderResponse: HeaderResponse{CorrelationID: 7},
 	}
 	got := fr.Encode()
-	// Encoded layout (16 bytes):
+	// Encoded layout (17 bytes) with no topics:
 	// [0:4]   CorrelationID=7    → 0x00 0x00 0x00 0x07
 	// [4]     HeaderTagBuffer=0  → 0x00
 	// [5:9]   ThrottleTimeMs=0   → 0x00 0x00 0x00 0x00
@@ -319,6 +338,43 @@ func TestFetchResponseBinaryEncoding(t *testing.T) {
 		0x00, 0x00, 0x00, 0x00, // SessionID=0
 		0x01, // responses: empty COMPACT_ARRAY
 		0x00, // body TagBuffer
+	}
+	if !bytes.Equal(got, want) {
+		t.Errorf("encoding mismatch:\ngot  %#v\nwant %#v", got, want)
+	}
+}
+
+func TestFetchResponseBinaryEncodingUnknownTopic(t *testing.T) {
+	topicID := unknownTopicID
+	fr := &FetchResponse{
+		HeaderResponse: HeaderResponse{CorrelationID: 7},
+		Topics: []FetchTopicResponse{{
+			TopicID:    topicID,
+			Partitions: []FetchPartitionResponse{{PartitionIndex: 0, ErrorCode: 100}},
+		}},
+	}
+	got := fr.Encode()
+	want := []byte{
+		0x00, 0x00, 0x00, 0x07, // CorrelationID
+		0x00,                   // HeaderTagBuffer
+		0x00, 0x00, 0x00, 0x00, // ThrottleTimeMs=0
+		0x00, 0x00, // ErrorCode=0
+		0x00, 0x00, 0x00, 0x00, // SessionID=0
+		0x02,                                           // responses: COMPACT_ARRAY, 1 topic (count+1)
+		0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, // topic_id
+		0x09, 0x0A, 0x0B, 0x0C, 0x0D, 0x0E, 0x0F, 0x10,
+		0x02,                   // partitions: COMPACT_ARRAY, 1 partition (count+1)
+		0x00, 0x00, 0x00, 0x00, // partition_index=0
+		0x00, 0x64, // error_code=100 (UNKNOWN_TOPIC_ID)
+		0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // high_watermark=0
+		0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // last_stable_offset=0
+		0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // log_start_offset=0
+		0x01,                   // aborted_transactions: empty COMPACT_ARRAY
+		0xFF, 0xFF, 0xFF, 0xFF, // preferred_read_replica=-1
+		0x00, // records: null COMPACT_NULLABLE_BYTES
+		0x00, // partition tag_buffer
+		0x00, // topic tag_buffer
+		0x00, // body tag_buffer
 	}
 	if !bytes.Equal(got, want) {
 		t.Errorf("encoding mismatch:\ngot  %#v\nwant %#v", got, want)

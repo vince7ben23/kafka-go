@@ -9,14 +9,6 @@ import (
 // buildMinimalProduceBody builds a Produce v11 request body with null records,
 // for use in unit tests only. acks=-1, timeout_ms=1500.
 func buildMinimalProduceBody(topicName string, partitionIndexes []int32) []byte {
-	putUvarint := func(v uint64) []byte {
-		tmp := make([]byte, binary.MaxVarintLen64)
-		return tmp[:binary.PutUvarint(tmp, v)]
-	}
-	putInt32BE := func(v int32) []byte {
-		return []byte{byte(v >> 24), byte(v >> 16), byte(v >> 8), byte(v)}
-	}
-
 	var body []byte
 	body = append(body, 0x00)                   // transactional_id: null
 	body = append(body, 0xFF, 0xFF)             // acks = -1
@@ -96,11 +88,6 @@ func TestParseProduceRequest(t *testing.T) {
 // buildDescribeTopicPartitionsBody builds a DescribeTopicPartitions v0 request body
 // carrying the given topic names, for use in unit tests only.
 func buildDescribeTopicPartitionsBody(topicNames ...string) []byte {
-	putUvarint := func(v uint64) []byte {
-		tmp := make([]byte, binary.MaxVarintLen64)
-		return tmp[:binary.PutUvarint(tmp, v)]
-	}
-
 	var body []byte
 	body = append(body, putUvarint(uint64(len(topicNames)+1))...) // topics count+1
 	for _, name := range topicNames {
@@ -154,6 +141,84 @@ func TestParseDescribeTopicPartitionsRequest(t *testing.T) {
 		}
 		if len(dr.TopicNames) != 0 {
 			t.Errorf("TopicNames len: got %d, want 0", len(dr.TopicNames))
+		}
+	})
+}
+
+// buildFetchBody builds a Fetch v16 request body carrying one topic with the
+// given topic_id and partition indexes, for use in unit tests only. The leading
+// scalar fields are filled with arbitrary valid values.
+func buildFetchBody(topicID [16]byte, partitionIndexes []int32) []byte {
+	var body []byte
+	body = append(body, 0x00, 0x00, 0x01, 0xF4) // max_wait_ms = 500
+	body = append(body, 0x00, 0x00, 0x00, 0x01) // min_bytes = 1
+	body = append(body, 0x00, 0x10, 0x00, 0x00) // max_bytes = 1048576
+	body = append(body, 0x00)                   // isolation_level = 0
+	body = append(body, 0x00, 0x00, 0x00, 0x00) // session_id = 0
+	body = append(body, 0xFF, 0xFF, 0xFF, 0xFF) // session_epoch = -1
+
+	body = append(body, putUvarint(2)...) // 1 topic (count+1)
+	body = append(body, topicID[:]...)
+	body = append(body, putUvarint(uint64(len(partitionIndexes)+1))...)
+	for _, idx := range partitionIndexes {
+		body = append(body, putInt32BE(idx)...)     // partition
+		body = append(body, 0xFF, 0xFF, 0xFF, 0xFF) // current_leader_epoch = -1
+		body = append(body, 0, 0, 0, 0, 0, 0, 0, 0) // fetch_offset = 0
+		body = append(body, 0xFF, 0xFF, 0xFF, 0xFF) // last_fetched_epoch = -1
+		body = append(body, 0, 0, 0, 0, 0, 0, 0, 0) // log_start_offset = 0
+		body = append(body, 0x00, 0x10, 0x00, 0x00) // partition_max_bytes
+		body = append(body, 0x00)                   // partition TAG_BUFFER
+	}
+	body = append(body, 0x00) // topic TAG_BUFFER
+	body = append(body, 0x01) // forgotten_topics_data: empty COMPACT_ARRAY
+	body = append(body, 0x01) // rack_id: empty COMPACT_STRING
+	body = append(body, 0x00) // request TAG_BUFFER
+	return body
+}
+
+func TestParseFetchRequest(t *testing.T) {
+	topicID := unknownTopicID
+
+	t.Run("single topic single partition", func(t *testing.T) {
+		body := buildFetchBody(topicID, []int32{0})
+		fr, err := parseFetchRequest(body)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if len(fr.Topics) != 1 {
+			t.Fatalf("Topics len: got %d, want 1", len(fr.Topics))
+		}
+		if fr.Topics[0].TopicID != topicID {
+			t.Errorf("TopicID: got %v, want %v", fr.Topics[0].TopicID, topicID)
+		}
+		if len(fr.Topics[0].Partitions) != 1 {
+			t.Fatalf("Partitions len: got %d, want 1", len(fr.Topics[0].Partitions))
+		}
+		if fr.Topics[0].Partitions[0].Partition != 0 {
+			t.Errorf("Partition: got %d, want 0", fr.Topics[0].Partitions[0].Partition)
+		}
+	})
+
+	t.Run("multiple partitions", func(t *testing.T) {
+		body := buildFetchBody(topicID, []int32{0, 1, 2})
+		fr, err := parseFetchRequest(body)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if len(fr.Topics[0].Partitions) != 3 {
+			t.Fatalf("Partitions len: got %d, want 3", len(fr.Topics[0].Partitions))
+		}
+		for i, want := range []int32{0, 1, 2} {
+			if got := fr.Topics[0].Partitions[i].Partition; got != want {
+				t.Errorf("Partitions[%d].Partition: got %d, want %d", i, got, want)
+			}
+		}
+	})
+
+	t.Run("truncated body returns error", func(t *testing.T) {
+		_, err := parseFetchRequest([]byte{0x00, 0x00})
+		if err == nil {
+			t.Fatal("expected error for truncated body, got nil")
 		}
 	})
 }

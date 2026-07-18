@@ -157,6 +157,18 @@ func (r *DescribeTopicPartitionsResponse) Encode() []byte {
 	return buf.Bytes()
 }
 
+// FetchPartitionResponse holds per-partition fields echoed back to the client.
+type FetchPartitionResponse struct {
+	PartitionIndex int32
+	ErrorCode      int16
+}
+
+// FetchTopicResponse holds per-topic fields echoed back to the client.
+type FetchTopicResponse struct {
+	TopicID    [16]byte
+	Partitions []FetchPartitionResponse
+}
+
 // FetchResponse encodes a Fetch API v16 response (flexible version, response header v1).
 type FetchResponse struct {
 	HeaderResponse
@@ -164,7 +176,7 @@ type FetchResponse struct {
 	ThrottleTimeMs  int32
 	ErrorCode       int16
 	SessionID       int32
-	// Responses 之後階段再加;此階段固定為空陣列
+	Topics          []FetchTopicResponse
 }
 
 func (r *FetchResponse) Encode() []byte {
@@ -177,8 +189,28 @@ func (r *FetchResponse) Encode() []byte {
 	_ = binary.Write(buf, binary.BigEndian, r.ThrottleTimeMs)
 	_ = binary.Write(buf, binary.BigEndian, r.ErrorCode)
 	_ = binary.Write(buf, binary.BigEndian, r.SessionID)
-	writeCompactArrayLen(buf, 0) // responses: 空 COMPACT_ARRAY (0x01)
-	buf.WriteByte(0x00)          // top-level tag_buffer
+
+	// responses: COMPACT_ARRAY (count+1)
+	writeCompactArrayLen(buf, len(r.Topics))
+	for _, topic := range r.Topics {
+		buf.Write(topic.TopicID[:]) // topic_id: 16-byte UUID
+
+		// partitions: COMPACT_ARRAY (count+1)
+		writeCompactArrayLen(buf, len(topic.Partitions))
+		for _, part := range topic.Partitions {
+			_ = binary.Write(buf, binary.BigEndian, part.PartitionIndex)
+			_ = binary.Write(buf, binary.BigEndian, part.ErrorCode)
+			_ = binary.Write(buf, binary.BigEndian, int64(0))  // high_watermark
+			_ = binary.Write(buf, binary.BigEndian, int64(0))  // last_stable_offset
+			_ = binary.Write(buf, binary.BigEndian, int64(0))  // log_start_offset
+			writeCompactArrayLen(buf, 0)                       // aborted_transactions: empty COMPACT_ARRAY
+			_ = binary.Write(buf, binary.BigEndian, int32(-1)) // preferred_read_replica
+			writeUvarint(buf, 0)                               // records: null COMPACT_NULLABLE_BYTES
+			buf.WriteByte(0x00)                                // partition tag_buffer
+		}
+		buf.WriteByte(0x00) // topic tag_buffer
+	}
+	buf.WriteByte(0x00) // top-level tag_buffer
 
 	return buf.Bytes()
 }
@@ -292,14 +324,29 @@ func createApiVersionsResponse(req *Request) (*ApiVersionsResponse, error) {
 	}, nil
 }
 
-// createFetchResponse builds a Fetch v16 response. This stage does not parse the
-// request body; it always replies with error_code 0, throttle_time_ms 0, and an
-// empty responses array. The error return keeps the factory signature uniform
-// with the other NewResponse handlers.
+// createFetchResponse builds a Fetch v16 response. Top-level error_code and
+// throttle_time_ms are 0; each requested topic is echoed back with its topic_id,
+// and every requested partition is reported as error_code 100 (UNKNOWN_TOPIC_ID)
+// since topics are not yet resolved against cluster metadata.
 func createFetchResponse(req *Request) (*FetchResponse, error) {
-	return &FetchResponse{
-		HeaderResponse: HeaderResponse{CorrelationID: req.CorrelationID},
-	}, nil
+	fr, err := parseFetchRequest(req.Body)
+	if err != nil {
+		return nil, fmt.Errorf("createFetchResponse: %w", err)
+	}
+
+	resp := &FetchResponse{HeaderResponse: HeaderResponse{CorrelationID: req.CorrelationID}}
+	for _, topic := range fr.Topics {
+		topicResp := FetchTopicResponse{TopicID: topic.TopicID}
+		for _, part := range topic.Partitions {
+			topicResp.Partitions = append(topicResp.Partitions, FetchPartitionResponse{
+				PartitionIndex: part.Partition,
+				ErrorCode:      100, // UNKNOWN_TOPIC_ID
+			})
+		}
+		resp.Topics = append(resp.Topics, topicResp)
+	}
+
+	return resp, nil
 }
 
 func buildPartitionResponse(meta *ClusterMetadata, topicName string, part ProducePartitionData) ProducePartitionResponse {

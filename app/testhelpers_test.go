@@ -6,6 +6,22 @@ import (
 	"testing"
 )
 
+// unknownTopicID is the canonical 16-byte topic_id used across Fetch tests for a
+// topic that does not exist in cluster metadata (expected to yield error code 100).
+// It matches the bytes sent by test_script/test_fetch_unknown_topic.sh.
+var unknownTopicID = [16]byte{0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0A, 0x0B, 0x0C, 0x0D, 0x0E, 0x0F, 0x10}
+
+// putUvarint encodes v as a Kafka uvarint (used for COMPACT_ARRAY/STRING lengths).
+func putUvarint(v uint64) []byte {
+	tmp := make([]byte, binary.MaxVarintLen64)
+	return tmp[:binary.PutUvarint(tmp, v)]
+}
+
+// putInt32BE encodes v as a big-endian int32.
+func putInt32BE(v int32) []byte {
+	return []byte{byte(v >> 24), byte(v >> 16), byte(v >> 8), byte(v)}
+}
+
 func mustBinaryWrite(w io.Writer, order binary.ByteOrder, data any) {
 	if err := binary.Write(w, order, data); err != nil {
 		panic(err)

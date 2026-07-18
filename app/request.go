@@ -40,6 +40,43 @@ type DescribeTopicPartitionsRequest struct {
 	TopicNames []string
 }
 
+type FetchPartitionData struct {
+	Partition int32
+}
+
+type FetchTopicData struct {
+	TopicID    [16]byte
+	Partitions []FetchPartitionData
+}
+
+type FetchRequest struct {
+	Topics []FetchTopicData
+}
+
+// fetchRequestHeader is the fixed-size scalar prefix of a Fetch v16 body.
+// Decoded as a whole so the field names document the wire layout; none of
+// these values are used by this stage.
+type fetchRequestHeader struct {
+	MaxWaitMs      int32
+	MinBytes       int32
+	MaxBytes       int32
+	IsolationLevel int8
+	SessionID      int32
+	SessionEpoch   int32
+}
+
+// fetchPartitionFields is the fixed-size portion of a Fetch v16 partition entry
+// (before its TAG_BUFFER). Only Partition is retained; the rest are decoded to
+// advance past them.
+type fetchPartitionFields struct {
+	Partition          int32
+	CurrentLeaderEpoch int32
+	FetchOffset        int64
+	LastFetchedEpoch   int32
+	LogStartOffset     int64
+	PartitionMaxBytes  int32
+}
+
 func parseRequest(conn net.Conn) (*Request, error) {
 	req := &Request{}
 
@@ -170,6 +207,58 @@ func parseProduceRequest(body []byte) (*ProduceRequest, error) {
 	}
 
 	return pr, nil
+}
+
+// parseFetchRequest decodes a Fetch request v16 (flexible) body, extracting the
+// requested topic IDs and partition indexes. The leading scalar fields and each
+// partition's non-index fields are decoded only to advance the reader; the
+// trailing forgotten_topics_data, rack_id, and top-level tag_buffer are not
+// needed for this stage.
+func parseFetchRequest(body []byte) (*FetchRequest, error) {
+	r := bytes.NewReader(body)
+	fr := &FetchRequest{}
+
+	// Advance past the fixed-size scalar prefix; its layout is documented by
+	// fetchRequestHeader, whose size drives the skip (no magic number).
+	if _, err := io.CopyN(io.Discard, r, int64(binary.Size(fetchRequestHeader{}))); err != nil {
+		return nil, fmt.Errorf("fetch: header fields: %w", err)
+	}
+
+	// topics: COMPACT_ARRAY, encoded length = actual count + 1.
+	topicCount, err := binary.ReadUvarint(r)
+	if err != nil {
+		return nil, fmt.Errorf("fetch: topic count: %w", err)
+	}
+	for i := 0; i < int(topicCount)-1; i++ {
+		var topic FetchTopicData
+
+		if _, err := io.ReadFull(r, topic.TopicID[:]); err != nil {
+			return nil, fmt.Errorf("fetch: topic_id: %w", err)
+		}
+
+		partCount, err := binary.ReadUvarint(r)
+		if err != nil {
+			return nil, fmt.Errorf("fetch: partition count: %w", err)
+		}
+		for j := 0; j < int(partCount)-1; j++ {
+			var fields fetchPartitionFields
+			if err := binary.Read(r, binary.BigEndian, &fields); err != nil {
+				return nil, fmt.Errorf("fetch: partition fields: %w", err)
+			}
+			// partition TAG_BUFFER
+			if _, err := binary.ReadUvarint(r); err != nil {
+				return nil, fmt.Errorf("fetch: partition tag_buffer: %w", err)
+			}
+			topic.Partitions = append(topic.Partitions, FetchPartitionData{Partition: fields.Partition})
+		}
+		// topic TAG_BUFFER
+		if _, err := binary.ReadUvarint(r); err != nil {
+			return nil, fmt.Errorf("fetch: topic tag_buffer: %w", err)
+		}
+		fr.Topics = append(fr.Topics, topic)
+	}
+
+	return fr, nil
 }
 
 // parseDescribeTopicPartitionsRequest decodes a DescribeTopicPartitions request v0 body,
