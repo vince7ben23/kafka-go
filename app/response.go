@@ -167,6 +167,7 @@ func (r *DescribeTopicPartitionsResponse) Encode() []byte {
 type FetchPartitionResponse struct {
 	PartitionIndex int32
 	ErrorCode      int16
+	Records        []byte // raw RecordBatch bytes read from the partition log (nil = empty)
 }
 
 // FetchTopicResponse holds per-topic fields echoed back to the client.
@@ -211,7 +212,7 @@ func (r *FetchResponse) Encode() []byte {
 			_ = binary.Write(buf, binary.BigEndian, int64(0))  // log_start_offset
 			writeCompactArrayLen(buf, 0)                       // aborted_transactions: empty COMPACT_ARRAY
 			_ = binary.Write(buf, binary.BigEndian, int32(-1)) // preferred_read_replica
-			writeUvarint(buf, 0)                               // records: null COMPACT_NULLABLE_BYTES
+			writeCompactBytes(buf, part.Records)               // records: COMPACT_NULLABLE_BYTES
 			buf.WriteByte(0x00)                                // partition tag_buffer
 		}
 		buf.WriteByte(0x00) // topic tag_buffer
@@ -240,6 +241,39 @@ func writeCompactInt32Array(buf *bytes.Buffer, vs []int32) {
 	for _, v := range vs {
 		_ = binary.Write(buf, binary.BigEndian, v)
 	}
+}
+
+// writeCompactBytes writes a Kafka COMPACT_NULLABLE_BYTES. The length prefix is
+// an unsigned varint that distinguishes three cases:
+//   - nil        → 0     (null: the field is absent)
+//   - []byte{}   → 1     (present but empty, length 0)
+//   - N bytes    → N+1   (followed by the bytes)
+func writeCompactBytes(buf *bytes.Buffer, b []byte) {
+	if b == nil {
+		writeUvarint(buf, 0)
+		return
+	}
+	writeUvarint(buf, uint64(len(b)+1))
+	buf.Write(b)
+}
+
+// partitionLogPath returns the on-disk log path for one topic-partition.
+func partitionLogPath(baseDir, topicName string, partitionIdx int32) string {
+	dir := filepath.Join(baseDir, fmt.Sprintf("%s-%d", topicName, partitionIdx))
+	return filepath.Join(dir, "00000000000000000000.log")
+}
+
+// readPartitionLog reads the raw RecordBatch bytes stored for one topic-partition.
+// A missing log file is not an error — it yields nil, meaning the partition is empty.
+func readPartitionLog(baseDir, topicName string, partitionIdx int32) ([]byte, error) {
+	data, err := os.ReadFile(partitionLogPath(baseDir, topicName, partitionIdx))
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("readPartitionLog: %w", err)
+	}
+	return data, nil
 }
 
 func writePartitionLog(baseDir, topicName string, partitionIdx int32, records []byte) error {
@@ -343,16 +377,27 @@ func createFetchResponse(req *Request, meta *ClusterMetadata) (*FetchResponse, e
 
 	resp := &FetchResponse{HeaderResponse: HeaderResponse{CorrelationID: req.CorrelationID}}
 	for _, topic := range fr.Topics {
+		// A known topic_id yields error code 0 and its RecordBatch bytes read from
+		// disk; an unknown topic_id yields error code 100 with no records.
+		topicName, known := meta.findTopicName(topic.TopicID)
 		errorCode := errorCodeUnknownTopicID
-		if meta.hasTopicID(topic.TopicID) {
+		if known {
 			errorCode = errorCodeSuccess
 		}
 		topicResp := FetchTopicResponse{TopicID: topic.TopicID}
 		for _, part := range topic.Partitions {
-			topicResp.Partitions = append(topicResp.Partitions, FetchPartitionResponse{
+			partResp := FetchPartitionResponse{
 				PartitionIndex: part.Partition,
 				ErrorCode:      errorCode,
-			})
+			}
+			if known {
+				records, err := readPartitionLog(kafkaLogBaseDir, topicName, part.Partition)
+				if err != nil {
+					return nil, fmt.Errorf("createFetchResponse: %w", err)
+				}
+				partResp.Records = records
+			}
+			topicResp.Partitions = append(topicResp.Partitions, partResp)
 		}
 		resp.Topics = append(resp.Topics, topicResp)
 	}

@@ -8,6 +8,10 @@ import (
 	"net"
 )
 
+// maxMessageSize caps a single request's declared size to guard the message
+// buffer allocation, matching Kafka's default socket.request.max.bytes (100 MiB).
+const maxMessageSize = 100 * 1024 * 1024
+
 type Request struct {
 	MessageSize       int32
 	RequestAPIKey     int16
@@ -82,6 +86,12 @@ func parseRequest(conn net.Conn) (*Request, error) {
 
 	if err := binary.Read(conn, binary.BigEndian, &req.MessageSize); err != nil {
 		return nil, fmt.Errorf("read message_size: %w", err)
+	}
+	// Guard make([]byte, ...) against a malformed size: negative values panic
+	// makeslice, and absurdly large ones would try to allocate gigabytes. Kafka
+	// caps this at socket.request.max.bytes (100 MiB by default).
+	if req.MessageSize <= 0 || req.MessageSize > maxMessageSize {
+		return nil, fmt.Errorf("invalid message_size %d (must be 1..%d)", req.MessageSize, maxMessageSize)
 	}
 
 	msgBuf := make([]byte, req.MessageSize)

@@ -53,15 +53,22 @@ func (m *ClusterMetadata) findTopicID(topicName string) ([16]byte, bool) {
 // hasTopicID 回報 cluster metadata 是否存在此 topic UUID。nil receiver（無 metadata）
 // 一律視為不存在。
 func (m *ClusterMetadata) hasTopicID(topicID [16]byte) bool {
+	_, ok := m.findTopicName(topicID)
+	return ok
+}
+
+// findTopicName 由 topic UUID 反查 topic 名稱。nil receiver（無 metadata）或找不到
+// 時回傳 ok=false。
+func (m *ClusterMetadata) findTopicName(topicID [16]byte) (string, bool) {
 	if m == nil {
-		return false
+		return "", false
 	}
 	for _, t := range m.Topics {
 		if t.TopicID == topicID {
-			return true
+			return t.Name, true
 		}
 	}
-	return false
+	return "", false
 }
 
 func (m *ClusterMetadata) validateTopicPartition(topicName string, partitionID int32) bool {

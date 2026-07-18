@@ -450,6 +450,140 @@ func TestWritePartitionLogAppends(t *testing.T) {
 	}
 }
 
+func TestWriteCompactBytes(t *testing.T) {
+	// COMPACT_NULLABLE_BYTES distinguishes nil (null → 0), empty (→ 1) and
+	// N bytes (→ N+1 followed by the bytes).
+	cases := []struct {
+		name string
+		in   []byte
+		want []byte
+	}{
+		{"nil is null", nil, []byte{0x00}},
+		{"empty is length zero", []byte{}, []byte{0x01}},
+		{"three bytes", []byte{0xAA, 0xBB, 0xCC}, []byte{0x04, 0xAA, 0xBB, 0xCC}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			buf := new(bytes.Buffer)
+			writeCompactBytes(buf, tc.in)
+			if !bytes.Equal(buf.Bytes(), tc.want) {
+				t.Errorf("got %#v, want %#v", buf.Bytes(), tc.want)
+			}
+		})
+	}
+}
+
+func TestReadPartitionLog(t *testing.T) {
+	baseDir := t.TempDir()
+	records := []byte{0x0A, 0x0B, 0x0C, 0x0D} // arbitrary RecordBatch bytes
+	if err := writePartitionLog(baseDir, "my-topic", 0, records); err != nil {
+		t.Fatal(err)
+	}
+	got, err := readPartitionLog(baseDir, "my-topic", 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(got, records) {
+		t.Errorf("got %v, want %v", got, records)
+	}
+
+	// A missing log file is not an error; it yields nil (an empty partition).
+	missing, err := readPartitionLog(baseDir, "no-such-topic", 0)
+	if err != nil {
+		t.Fatalf("missing file should not error: %v", err)
+	}
+	if missing != nil {
+		t.Errorf("missing file: got %v, want nil", missing)
+	}
+}
+
+func TestNewResponseFetchKnownTopicWithRecords(t *testing.T) {
+	// Point the handler at a temp log dir seeded with a single RecordBatch, then
+	// verify the Fetch response echoes those exact bytes back in Records.
+	baseDir := t.TempDir()
+	records := []byte{0x00, 0x11, 0x22, 0x33, 0x44, 0x55}
+	if err := writePartitionLog(baseDir, "test-topic", 0, records); err != nil {
+		t.Fatal(err)
+	}
+	orig := kafkaLogBaseDir
+	kafkaLogBaseDir = baseDir
+	defer func() { kafkaLogBaseDir = orig }()
+
+	meta := &ClusterMetadata{
+		Topics: []TopicMetadata{{Name: "test-topic", TopicID: knownTopicID}},
+	}
+	body := buildFetchBody(knownTopicID, []int32{0})
+	req := &Request{RequestAPIKey: APIKeyFetch, RequestAPIVersion: 16, CorrelationID: 7, Body: body}
+	resp, err := NewResponse(req, meta)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	fResp := resp.(*FetchResponse)
+	if len(fResp.Topics) != 1 || len(fResp.Topics[0].Partitions) != 1 {
+		t.Fatalf("unexpected shape: %+v", fResp.Topics)
+	}
+	part := fResp.Topics[0].Partitions[0]
+	if part.ErrorCode != 0 {
+		t.Errorf("ErrorCode: got %d, want 0", part.ErrorCode)
+	}
+	if !bytes.Equal(part.Records, records) {
+		t.Errorf("Records: got %v, want %v", part.Records, records)
+	}
+}
+
+func TestFetchResponseBinaryEncodingWithRecords(t *testing.T) {
+	records := []byte{0xAA, 0xBB, 0xCC}
+	fr := &FetchResponse{
+		HeaderResponse: HeaderResponse{CorrelationID: 7},
+		Topics: []FetchTopicResponse{{
+			TopicID:    knownTopicID,
+			Partitions: []FetchPartitionResponse{{PartitionIndex: 0, ErrorCode: 0, Records: records}},
+		}},
+	}
+	got := fr.Encode()
+	want := []byte{
+		0x00, 0x00, 0x00, 0x07, // CorrelationID
+		0x00,                   // HeaderTagBuffer
+		0x00, 0x00, 0x00, 0x00, // ThrottleTimeMs=0
+		0x00, 0x00, // ErrorCode=0
+		0x00, 0x00, 0x00, 0x00, // SessionID=0
+		0x02,                                           // responses: 1 topic (count+1)
+		0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17, 0x18, // topic_id (knownTopicID)
+		0x19, 0x1A, 0x1B, 0x1C, 0x1D, 0x1E, 0x1F, 0x20,
+		0x02,                   // partitions: 1 partition (count+1)
+		0x00, 0x00, 0x00, 0x00, // partition_index=0
+		0x00, 0x00, // error_code=0
+		0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // high_watermark=0
+		0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // last_stable_offset=0
+		0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // log_start_offset=0
+		0x01,                   // aborted_transactions: empty COMPACT_ARRAY
+		0xFF, 0xFF, 0xFF, 0xFF, // preferred_read_replica=-1
+		0x04, 0xAA, 0xBB, 0xCC, // records: COMPACT_NULLABLE_BYTES (len+1, then bytes)
+		0x00, // partition tag_buffer
+		0x00, // topic tag_buffer
+		0x00, // body tag_buffer
+	}
+	if !bytes.Equal(got, want) {
+		t.Errorf("encoding mismatch:\ngot  %#v\nwant %#v", got, want)
+	}
+}
+
+func TestFindTopicName(t *testing.T) {
+	meta := &ClusterMetadata{
+		Topics: []TopicMetadata{{Name: "test-topic", TopicID: knownTopicID}},
+	}
+	if name, ok := meta.findTopicName(knownTopicID); !ok || name != "test-topic" {
+		t.Errorf("hit: got (%q, %v), want (\"test-topic\", true)", name, ok)
+	}
+	if _, ok := meta.findTopicName(unknownTopicID); ok {
+		t.Errorf("miss: got ok=true, want false")
+	}
+	var nilMeta *ClusterMetadata
+	if _, ok := nilMeta.findTopicName(knownTopicID); ok {
+		t.Errorf("nil receiver: got ok=true, want false")
+	}
+}
+
 func TestApiVersionsResponseBinaryEncoding(t *testing.T) {
 	req := &Request{RequestAPIKey: APIKeyApiVersions, RequestAPIVersion: 4, CorrelationID: 12345}
 	enc, err := NewResponse(req, nil)

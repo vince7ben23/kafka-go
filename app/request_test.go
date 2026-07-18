@@ -280,3 +280,32 @@ func TestParseRequestTruncated(t *testing.T) {
 		t.Fatal("expected error for truncated header, got nil")
 	}
 }
+
+// TestParseRequestInvalidMessageSize verifies a malformed message_size is
+// rejected with an error instead of panicking make([]byte, ...). The test
+// process surviving these inputs is itself the assertion that no panic escapes.
+func TestParseRequestInvalidMessageSize(t *testing.T) {
+	tests := []struct {
+		name    string
+		msgSize int32
+	}{
+		{"negative", -1},
+		{"zero", 0},
+		{"too large", maxMessageSize + 1},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			client, server := net.Pipe()
+			defer server.Close()
+
+			go func() {
+				defer client.Close()
+				binary.Write(client, binary.BigEndian, tt.msgSize)
+			}()
+
+			if _, err := parseRequest(server); err == nil {
+				t.Fatalf("expected error for message_size %d, got nil", tt.msgSize)
+			}
+		})
+	}
+}

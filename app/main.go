@@ -57,6 +57,13 @@ func writeResponse(conn net.Conn, resp Encoder) error {
 
 func (s *Server) handleRequest(conn net.Conn) {
 	defer conn.Close()
+	// A panic while serving one connection must not take down the whole broker;
+	// recover, log it, and let this goroutine end (closing the connection).
+	defer func() {
+		if r := recover(); r != nil {
+			log.Printf("handleRequest: recovered from panic: %v", r)
+		}
+	}()
 	for {
 		req, err := parseRequest(conn)
 		if err != nil {
