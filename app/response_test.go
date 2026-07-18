@@ -317,6 +317,39 @@ func TestNewResponseFetch(t *testing.T) {
 	}
 }
 
+func TestNewResponseFetchKnownTopic(t *testing.T) {
+	// A topic_id that exists in cluster metadata, so the handler should report
+	// error code 0 (No Error) with an empty records array.
+	meta := &ClusterMetadata{
+		Topics: []TopicMetadata{{Name: "test-topic", TopicID: knownTopicID}},
+	}
+	body := buildFetchBody(knownTopicID, []int32{0})
+	req := &Request{RequestAPIKey: APIKeyFetch, RequestAPIVersion: 16, CorrelationID: 7, Body: body}
+	resp, err := NewResponse(req, meta)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	fResp, ok := resp.(*FetchResponse)
+	if !ok {
+		t.Fatal("expected *FetchResponse")
+	}
+	if len(fResp.Topics) != 1 {
+		t.Fatalf("Topics len: got %d, want 1", len(fResp.Topics))
+	}
+	if fResp.Topics[0].TopicID != knownTopicID {
+		t.Errorf("TopicID: got %v, want %v", fResp.Topics[0].TopicID, knownTopicID)
+	}
+	if len(fResp.Topics[0].Partitions) != 1 {
+		t.Fatalf("Partitions len: got %d, want 1", len(fResp.Topics[0].Partitions))
+	}
+	if got := fResp.Topics[0].Partitions[0].PartitionIndex; got != 0 {
+		t.Errorf("PartitionIndex: got %d, want 0", got)
+	}
+	if got := fResp.Topics[0].Partitions[0].ErrorCode; got != 0 {
+		t.Errorf("ErrorCode: got %d, want 0 (No Error)", got)
+	}
+}
+
 func TestFetchResponseBinaryEncodingEmpty(t *testing.T) {
 	fr := &FetchResponse{
 		HeaderResponse: HeaderResponse{CorrelationID: 7},

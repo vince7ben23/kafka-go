@@ -2,8 +2,8 @@
 
 A small helper that writes synthetic **KRaft `__cluster_metadata` log fixtures**
 to disk, so the broker's metadata-driven code paths (Produce topic/partition
-validation, `DescribeTopicPartitions`) can be exercised manually without a real
-Kafka cluster.
+validation, `DescribeTopicPartitions`, and Fetch topic_id resolution) can be
+exercised manually without a real Kafka cluster.
 
 The broker reads its cluster metadata once at startup from
 `/tmp/kraft-combined-logs/__cluster_metadata-0/00000000000000000000.log`
@@ -21,6 +21,7 @@ go run ./tools/gen_test_logs
 go run ./tools/gen_test_logs -case valid
 go run ./tools/gen_test_logs -case invalid-partition
 go run ./tools/gen_test_logs -case invalid-topic
+go run ./tools/gen_test_logs -case fetch-empty
 ```
 
 Output goes to `/tmp/kraft-combined-logs/__cluster_metadata-0/`.
@@ -32,6 +33,7 @@ Output goes to `/tmp/kraft-combined-logs/__cluster_metadata-0/`.
 | `valid`             | `valid_topic_valid_partition.log`     | `TOPIC_RECORD` + matching `PARTITION_RECORD`      | topic/partition valid → Produce succeeds (code 0) |
 | `invalid-partition` | `valid_topic_invalid_partition.log`   | `TOPIC_RECORD` + `PARTITION_RECORD` for a **different** topic UUID | partition not found → code 3 (UNKNOWN_TOPIC_OR_PARTITION) |
 | `invalid-topic`     | `invalid_topic_invalid_partition.log` | empty batch (no records)                          | topic not found → code 3                           |
+| `fetch-empty`       | `fetch_empty_topic.log`               | `TOPIC_RECORD` only (no partition, no message log) | Fetch known topic_id with no messages → code 0, empty records |
 
 All fixtures use the topic name `test-topic`. The `valid` fixture references
 `testTopicID`; `invalid-partition` deliberately points its partition at

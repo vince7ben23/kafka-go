@@ -35,7 +35,7 @@ type fixture struct {
 }
 
 func main() {
-	caseFlag := flag.String("case", "all", "which fixture to generate: valid | invalid-partition | invalid-topic | all")
+	caseFlag := flag.String("case", "all", "which fixture to generate: valid | invalid-partition | invalid-topic | fetch-empty | all")
 	flag.Parse()
 
 	if err := os.MkdirAll(outDir, 0755); err != nil {
@@ -58,6 +58,14 @@ func main() {
 			"invalid_topic_invalid_partition.log",
 			buildBatch(),
 		},
+		{
+			// Topic exists in metadata but has no PARTITION_RECORD and no message
+			// log — the "Fetch for a topic with no messages" case. Fetch resolves
+			// testTopicID via hasTopicID and replies error code 0 with empty records.
+			"fetch-empty",
+			"fetch_empty_topic.log",
+			buildBatch(encodeTopicRecord("test-topic", testTopicID)),
+		},
 	}
 
 	written := 0
@@ -68,7 +76,7 @@ func main() {
 		}
 	}
 	if written == 0 {
-		log.Fatalf("unknown -case %q: must be valid | invalid-partition | invalid-topic | all", *caseFlag)
+		log.Fatalf("unknown -case %q: must be valid | invalid-partition | invalid-topic | fetch-empty | all", *caseFlag)
 	}
 
 	log.Printf("written to %s", outDir)

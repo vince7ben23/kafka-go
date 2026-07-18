@@ -14,6 +14,12 @@ const APIKeyFetch = int16(1)
 const APIKeyApiVersions = int16(18)
 const APIKeyDescribeTopicPartitions = int16(75)
 
+// Kafka error codes used by the Fetch handler.
+const (
+	errorCodeSuccess        = int16(0)
+	errorCodeUnknownTopicID = int16(100)
+)
+
 type MessageSize int32
 
 type Encoder interface {
@@ -297,7 +303,7 @@ func NewResponse(req *Request, meta *ClusterMetadata) (Encoder, error) {
 	case APIKeyApiProduce:
 		return createApiProduceResponse(req, meta)
 	case APIKeyFetch:
-		return createFetchResponse(req)
+		return createFetchResponse(req, meta)
 	case APIKeyDescribeTopicPartitions:
 		return createDescribeTopicPartitionsResponse(req, meta)
 	default:
@@ -325,10 +331,11 @@ func createApiVersionsResponse(req *Request) (*ApiVersionsResponse, error) {
 }
 
 // createFetchResponse builds a Fetch v16 response. Top-level error_code and
-// throttle_time_ms are 0; each requested topic is echoed back with its topic_id,
-// and every requested partition is reported as error_code 100 (UNKNOWN_TOPIC_ID)
-// since topics are not yet resolved against cluster metadata.
-func createFetchResponse(req *Request) (*FetchResponse, error) {
+// throttle_time_ms are 0; each requested topic is echoed back with its topic_id.
+// Each requested partition's error_code is resolved against cluster metadata: a
+// known topic_id yields 0 (No Error) with an empty records array, while an
+// unknown topic_id yields 100 (UNKNOWN_TOPIC_ID).
+func createFetchResponse(req *Request, meta *ClusterMetadata) (*FetchResponse, error) {
 	fr, err := parseFetchRequest(req.Body)
 	if err != nil {
 		return nil, fmt.Errorf("createFetchResponse: %w", err)
@@ -336,11 +343,15 @@ func createFetchResponse(req *Request) (*FetchResponse, error) {
 
 	resp := &FetchResponse{HeaderResponse: HeaderResponse{CorrelationID: req.CorrelationID}}
 	for _, topic := range fr.Topics {
+		errorCode := errorCodeUnknownTopicID
+		if meta.hasTopicID(topic.TopicID) {
+			errorCode = errorCodeSuccess
+		}
 		topicResp := FetchTopicResponse{TopicID: topic.TopicID}
 		for _, part := range topic.Partitions {
 			topicResp.Partitions = append(topicResp.Partitions, FetchPartitionResponse{
 				PartitionIndex: part.Partition,
-				ErrorCode:      100, // UNKNOWN_TOPIC_ID
+				ErrorCode:      errorCode,
 			})
 		}
 		resp.Topics = append(resp.Topics, topicResp)
