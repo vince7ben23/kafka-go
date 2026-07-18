@@ -68,7 +68,7 @@ Response format:
 |---------|-------------|----------|-------------------------------------------------------------|
 | 18      | ApiVersions | 0–4      | Error code 35 (UNSUPPORTED_VERSION) if version outside 0–4; response advertises API 18 (v0–4) and API 0 (v0–11) |
 | 0       | Produce     | 11       | Validates topic/partition via KRaft metadata log; error code 3 (UNKNOWN_TOPIC_OR_PARTITION) for unknown, error code 5 (LEADER_NOT_AVAILABLE) on storage write failure, 0 for success; accepted RecordBatches are appended to the topic-partition log file |
-| 1       | Fetch       | 16       | Parses the request topics; each requested topic_id is resolved against KRaft cluster metadata — a known topic_id yields error code 0 with an empty records array, an unknown topic_id yields error code 100 (UNKNOWN_TOPIC_ID). Top-level error_code and throttle_time_ms are 0 (response header v1) |
+| 1       | Fetch       | 16       | Parses the request topics; each requested topic_id is resolved against KRaft cluster metadata — a known topic_id yields error code 0 and, per partition, the raw RecordBatch bytes read from that topic-partition's log file (`readPartitionLog`; a missing log file means empty records); an unknown topic_id yields error code 100 (UNKNOWN_TOPIC_ID). Top-level error_code and throttle_time_ms are 0 (response header v1) |
 | *       | (others)    | —        | Returns `HeaderResponse` with only CorrelationID            |
 
 ### Log Files on Disk

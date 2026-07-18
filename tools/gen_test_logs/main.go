@@ -1,9 +1,9 @@
 // gen_test_logs generates three __cluster_metadata log fixtures under
 // /tmp/kraft-combined-logs/__cluster_metadata-0/:
 //
-//   valid_topic_valid_partition.log     — TOPIC_RECORD + matching PARTITION_RECORD
-//   valid_topic_invalid_partition.log   — TOPIC_RECORD only (no matching partition)
-//   invalid_topic_invalid_partition.log — empty batch (no records)
+//	valid_topic_valid_partition.log     — TOPIC_RECORD + matching PARTITION_RECORD
+//	valid_topic_invalid_partition.log   — TOPIC_RECORD only (no matching partition)
+//	invalid_topic_invalid_partition.log — empty batch (no records)
 package main
 
 import (
@@ -157,8 +157,8 @@ func buildBatch(records ...[]byte) []byte {
 	body.Write(recs.Bytes())
 
 	var out bytes.Buffer
-	mustWrite(&out, int64(0))           // BaseOffset
-	mustWrite(&out, int32(body.Len()))  // BatchLength
+	mustWrite(&out, int64(0))          // BaseOffset
+	mustWrite(&out, int32(body.Len())) // BatchLength
 	out.Write(body.Bytes())
 	return out.Bytes()
 }
@@ -166,10 +166,10 @@ func buildBatch(records ...[]byte) []byte {
 // encodeRecord wraps a value byte slice as a Kafka Record with signed-varint framing.
 func encodeRecord(value []byte) []byte {
 	var rec bytes.Buffer
-	rec.WriteByte(0) // Attributes
-	rec.WriteByte(0) // TimestampDelta varint(0)
-	rec.WriteByte(0) // OffsetDelta varint(0)
-	writeVarint(&rec, -1)              // KeyLength = null
+	rec.WriteByte(0)                     // Attributes
+	rec.WriteByte(0)                     // TimestampDelta varint(0)
+	rec.WriteByte(0)                     // OffsetDelta varint(0)
+	writeVarint(&rec, -1)                // KeyLength = null
 	writeVarint(&rec, int64(len(value))) // ValueLength
 	rec.Write(value)
 	rec.WriteByte(0) // Headers count uvarint(0)
