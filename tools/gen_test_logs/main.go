@@ -14,7 +14,18 @@ import (
 	"os"
 )
 
-const outDir = "/tmp/kraft-combined-logs/__cluster_metadata-0"
+const (
+	baseLogDir  = "/tmp/kraft-combined-logs"
+	metadataDir = baseLogDir + "/__cluster_metadata-0"
+	// partitionDataDir is where the broker reads a topic-partition's message log
+	// (see readPartitionLog in app/response.go). test-topic partition 0.
+	partitionDataDir = baseLogDir + "/test-topic-0"
+)
+
+// singleMessageValue is the payload of the lone message in the
+// fetch-single-message data log; its exact bytes are irrelevant to the broker,
+// which returns the whole RecordBatch verbatim.
+var singleMessageValue = []byte("Hello, Kafka Fetch!")
 
 // testTopicID is the UUID used for "test-topic" across all fixtures.
 var testTopicID = [16]byte{
@@ -28,21 +39,30 @@ var otherTopicID = [16]byte{
 	0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02,
 }
 
+// fixture is a __cluster_metadata log candidate; copy the chosen file to
+// 00000000000000000000.log before starting the broker.
 type fixture struct {
 	caseName string
 	fileName string
 	data     []byte
 }
 
+// partitionLog is a topic-partition message log written straight to the broker's
+// canonical segment path (no rename needed), so readPartitionLog reads it as-is.
+type partitionLog struct {
+	caseName string
+	dir      string
+	data     []byte
+}
+
+const partitionSegmentName = "00000000000000000000.log"
+
 func main() {
-	caseFlag := flag.String("case", "all", "which fixture to generate: valid | invalid-partition | invalid-topic | fetch-empty | all")
+	caseFlag := flag.String("case", "all", "which fixture to generate: valid | invalid-partition | invalid-topic | fetch-empty | fetch-single-message | all")
 	flag.Parse()
 
-	if err := os.MkdirAll(outDir, 0755); err != nil {
-		log.Fatalf("mkdir: %v", err)
-	}
-
-	fixtures := []fixture{
+	// Metadata fixtures — all written to metadataDir under their own names.
+	metadataFixtures := []fixture{
 		{
 			"valid",
 			"valid_topic_valid_partition.log",
@@ -66,23 +86,49 @@ func main() {
 			"fetch_empty_topic.log",
 			buildBatch(encodeTopicRecord("test-topic", testTopicID)),
 		},
+		{
+			// The "Fetch for a topic with a single message on disk" case: metadata
+			// side makes the topic known; the message itself lives in the
+			// partitionLogs entry below.
+			"fetch-single-message",
+			"fetch_single_message_meta.log",
+			buildBatch(encodeTopicRecord("test-topic", testTopicID)),
+		},
+	}
+
+	// Partition message logs — written straight to <topic>-<partition>/ under the
+	// canonical segment name, ready for the broker to read.
+	partitionLogs := []partitionLog{
+		{
+			"fetch-single-message",
+			partitionDataDir,
+			buildBatch(encodeRecord(singleMessageValue)),
+		},
 	}
 
 	written := 0
-	for _, f := range fixtures {
+	for _, f := range metadataFixtures {
 		if *caseFlag == "all" || *caseFlag == f.caseName {
-			write(outDir+"/"+f.fileName, f.data)
+			write(metadataDir, f.fileName, f.data)
+			written++
+		}
+	}
+	for _, p := range partitionLogs {
+		if *caseFlag == "all" || *caseFlag == p.caseName {
+			write(p.dir, partitionSegmentName, p.data)
 			written++
 		}
 	}
 	if written == 0 {
-		log.Fatalf("unknown -case %q: must be valid | invalid-partition | invalid-topic | fetch-empty | all", *caseFlag)
+		log.Fatalf("unknown -case %q: must be valid | invalid-partition | invalid-topic | fetch-empty | fetch-single-message | all", *caseFlag)
 	}
-
-	log.Printf("written to %s", outDir)
 }
 
-func write(path string, data []byte) {
+func write(dir, fileName string, data []byte) {
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		log.Fatalf("mkdir %s: %v", dir, err)
+	}
+	path := dir + "/" + fileName
 	if err := os.WriteFile(path, data, 0644); err != nil {
 		log.Fatalf("write %s: %v", path, err)
 	}

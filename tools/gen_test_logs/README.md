@@ -22,9 +22,13 @@ go run ./tools/gen_test_logs -case valid
 go run ./tools/gen_test_logs -case invalid-partition
 go run ./tools/gen_test_logs -case invalid-topic
 go run ./tools/gen_test_logs -case fetch-empty
+go run ./tools/gen_test_logs -case fetch-single-message
 ```
 
-Output goes to `/tmp/kraft-combined-logs/__cluster_metadata-0/`.
+Metadata fixtures go to `/tmp/kraft-combined-logs/__cluster_metadata-0/`.
+The `fetch-single-message` case additionally writes a topic-partition **message
+log** to `/tmp/kraft-combined-logs/test-topic-0/00000000000000000000.log` — this
+one lands on the broker's canonical segment path directly, so no rename is needed.
 
 ## Fixtures
 
@@ -34,6 +38,7 @@ Output goes to `/tmp/kraft-combined-logs/__cluster_metadata-0/`.
 | `invalid-partition` | `valid_topic_invalid_partition.log`   | `TOPIC_RECORD` + `PARTITION_RECORD` for a **different** topic UUID | partition not found → code 3 (UNKNOWN_TOPIC_OR_PARTITION) |
 | `invalid-topic`     | `invalid_topic_invalid_partition.log` | empty batch (no records)                          | topic not found → code 3                           |
 | `fetch-empty`       | `fetch_empty_topic.log`               | `TOPIC_RECORD` only (no partition, no message log) | Fetch known topic_id with no messages → code 0, empty records |
+| `fetch-single-message` | `fetch_single_message_meta.log` + `test-topic-0/00000000000000000000.log` | `TOPIC_RECORD` (topic known) **plus** a partition log holding one message | Fetch known topic_id → code 0, records = the message RecordBatch read from disk |
 
 All fixtures use the topic name `test-topic`. The `valid` fixture references
 `testTopicID`; `invalid-partition` deliberately points its partition at
