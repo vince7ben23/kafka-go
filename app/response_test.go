@@ -277,6 +277,54 @@ func TestProduceResponseBinaryEncoding(t *testing.T) {
 	}
 }
 
+func TestNewResponseFetch(t *testing.T) {
+	req := &Request{RequestAPIKey: APIKeyFetch, RequestAPIVersion: 16, CorrelationID: 7}
+	resp, err := NewResponse(req, nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	fResp, ok := resp.(*FetchResponse)
+	if !ok {
+		t.Fatal("expected *FetchResponse")
+	}
+	if fResp.CorrelationID != 7 {
+		t.Errorf("CorrelationID: got %d, want 7", fResp.CorrelationID)
+	}
+	if fResp.ErrorCode != 0 {
+		t.Errorf("ErrorCode: got %d, want 0", fResp.ErrorCode)
+	}
+	if fResp.ThrottleTimeMs != 0 {
+		t.Errorf("ThrottleTimeMs: got %d, want 0", fResp.ThrottleTimeMs)
+	}
+}
+
+func TestFetchResponseBinaryEncoding(t *testing.T) {
+	fr := &FetchResponse{
+		HeaderResponse: HeaderResponse{CorrelationID: 7},
+	}
+	got := fr.Encode()
+	// Encoded layout (16 bytes):
+	// [0:4]   CorrelationID=7    → 0x00 0x00 0x00 0x07
+	// [4]     HeaderTagBuffer=0  → 0x00
+	// [5:9]   ThrottleTimeMs=0   → 0x00 0x00 0x00 0x00
+	// [9:11]  ErrorCode=0        → 0x00 0x00
+	// [11:15] SessionID=0        → 0x00 0x00 0x00 0x00
+	// [15]    responses (empty)  → 0x01
+	// [16]    body TagBuffer     → 0x00
+	want := []byte{
+		0x00, 0x00, 0x00, 0x07, // CorrelationID
+		0x00,                   // HeaderTagBuffer
+		0x00, 0x00, 0x00, 0x00, // ThrottleTimeMs=0
+		0x00, 0x00, // ErrorCode=0
+		0x00, 0x00, 0x00, 0x00, // SessionID=0
+		0x01, // responses: empty COMPACT_ARRAY
+		0x00, // body TagBuffer
+	}
+	if !bytes.Equal(got, want) {
+		t.Errorf("encoding mismatch:\ngot  %#v\nwant %#v", got, want)
+	}
+}
+
 func TestWritePartitionLog(t *testing.T) {
 	baseDir := t.TempDir()
 	records := []byte{0x00, 0x01, 0x02, 0x03} // arbitrary bytes standing in for a RecordBatch

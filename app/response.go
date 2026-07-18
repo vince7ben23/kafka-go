@@ -157,6 +157,32 @@ func (r *DescribeTopicPartitionsResponse) Encode() []byte {
 	return buf.Bytes()
 }
 
+// FetchResponse encodes a Fetch API v16 response (flexible version, response header v1).
+type FetchResponse struct {
+	HeaderResponse
+	HeaderTagBuffer int8
+	ThrottleTimeMs  int32
+	ErrorCode       int16
+	SessionID       int32
+	// Responses 之後階段再加;此階段固定為空陣列
+}
+
+func (r *FetchResponse) Encode() []byte {
+	buf := new(bytes.Buffer)
+
+	// Response header v1: correlation_id + tag_buffer
+	_ = binary.Write(buf, binary.BigEndian, r.CorrelationID)
+	_ = binary.Write(buf, binary.BigEndian, r.HeaderTagBuffer)
+
+	_ = binary.Write(buf, binary.BigEndian, r.ThrottleTimeMs)
+	_ = binary.Write(buf, binary.BigEndian, r.ErrorCode)
+	_ = binary.Write(buf, binary.BigEndian, r.SessionID)
+	writeCompactArrayLen(buf, 0) // responses: 空 COMPACT_ARRAY (0x01)
+	buf.WriteByte(0x00)          // top-level tag_buffer
+
+	return buf.Bytes()
+}
+
 func writeUvarint(buf *bytes.Buffer, v uint64) {
 	b := make([]byte, binary.MaxVarintLen64)
 	n := binary.PutUvarint(b, v)
@@ -238,6 +264,8 @@ func NewResponse(req *Request, meta *ClusterMetadata) (Encoder, error) {
 		return createApiVersionsResponse(req)
 	case APIKeyApiProduce:
 		return createApiProduceResponse(req, meta)
+	case APIKeyFetch:
+		return createFetchResponse(req)
 	case APIKeyDescribeTopicPartitions:
 		return createDescribeTopicPartitionsResponse(req, meta)
 	default:
@@ -261,6 +289,16 @@ func createApiVersionsResponse(req *Request) (*ApiVersionsResponse, error) {
 		HeaderResponse: HeaderResponse{CorrelationID: req.CorrelationID},
 		ErrorCode:      errorCode,
 		APIVersions:    apiVersions,
+	}, nil
+}
+
+// createFetchResponse builds a Fetch v16 response. This stage does not parse the
+// request body; it always replies with error_code 0, throttle_time_ms 0, and an
+// empty responses array. The error return keeps the factory signature uniform
+// with the other NewResponse handlers.
+func createFetchResponse(req *Request) (*FetchResponse, error) {
+	return &FetchResponse{
+		HeaderResponse: HeaderResponse{CorrelationID: req.CorrelationID},
 	}, nil
 }
 
